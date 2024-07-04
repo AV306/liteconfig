@@ -29,7 +29,7 @@ public class ConfigManager
      * @param name: Name of the application, used in logging statements
      * @param configFilePath: Path to the config file
      * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties")
-     * @param configurableClass: {@Link java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
+     * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
      */
     public ConfigManager(
