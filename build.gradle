@@ -46,7 +46,7 @@ publishing {
         maven(MavenPublication) {
             groupId = 'me.av306.liteconfig'
             artifactId = 'liteconfig'
-            version = '0.1.0-alpha'
+            version = '1.0.0-alpha'
 
 		    from components.java
         }
