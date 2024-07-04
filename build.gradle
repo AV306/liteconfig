@@ -8,7 +8,11 @@
 plugins {
     // Apply the java-library plugin for API and implementation separation.
     id 'java-library'
+    id 'maven-publish'
 }
+
+group = "com.github.AV306"
+version = "1.0.0"
 
 repositories {
     // Use Maven Central for resolving dependencies.
@@ -33,6 +37,19 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of( 17 )
     }
+
+    withSourcesJar()
+	withJavadocJar()
+}
+
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+		    from components.java
+        }
+    }
+
 }
 
 tasks.named('test') {
