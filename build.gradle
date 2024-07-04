@@ -11,8 +11,6 @@ plugins {
     id 'maven-publish'
 }
 
-group = "com.github.AV306"
-version = "1.0.0"
 
 repositories {
     // Use Maven Central for resolving dependencies.
@@ -46,6 +44,10 @@ java {
 publishing {
     publications {
         maven(MavenPublication) {
+            groupId = 'me.av306.liteconfig'
+            artifactId = 'liteconfig'
+            version = '0.1.0'
+
 		    from components.java
         }
     }
