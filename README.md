@@ -2,6 +2,8 @@
 
 [![](https://jitpack.io/v/AV306/liteconfig.svg)](https://jitpack.io/#AV306/liteconfig)
 
+<sup>Honestly, you could just copy/paste [ConfigManager.java](https://github.com/AV306/liteconfig/blob/main/src/main/java/me/av306/liteconfig/ConfigManager.java) into your project; it's literally just a single class.</sup>
+
 A very small and lightweight Java configuration manager.
 
 ## Features
