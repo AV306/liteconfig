@@ -1,3 +1,8 @@
+/**
+ * Feel free to copy this into your own project, but just
+ * take note of the MIT license (tl;dr: do whatever you want, but no warranty) :)
+ */
+
 package me.av306.liteconfig;
 
 import java.io.BufferedReader;
@@ -7,6 +12,7 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +34,32 @@ public class ConfigManager
      * Full constructor for a config manager.
      * @param name: Name of the application, used in logging statements
      * @param configFilePath: Path to the config file
-     * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties")
+     * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties") (used to name the newly created one, if needed)
+     * @param defaultConfigFileInputStream: Input stream of content of the default config file
+     * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
+     * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
+     */
+    public ConfigManager(
+        String name, Path configFilePath, String configFileName,
+        InputStream defaultConfigFileInputStream,
+        Class<?> configurableClass,
+        Configurable configurableClassInstance )
+    {
+        this.name = name;
+        this.configFileDirectory = configFilePath;
+        this.configFileName = configFileName;
+        this.configurableClass = configurableClass;
+        this.configurableClassInstance = configurableClassInstance;
+
+        this.checkConfigFile( defaultConfigFileInputStream );
+        this.readConfigFile();
+    }
+
+    /**
+     * Constructor for a config manager that tries to find a default config file in the JAR resources section
+     * @param name: Name of the application, used in logging statements
+     * @param configFilePath: Path to the config file
+     * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties") (this will be used both to name the newly created one, and to find the embedded default one)
      * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
      */
@@ -49,21 +80,26 @@ public class ConfigManager
 
     /**
      * Check for the existence of a config file, and copy the bundled one over if needed
+     * (Tries to handle the closing of the streams)
      */
-    private void checkConfigFile()
+    private void checkConfigFile( InputStream defaultConfigFileInputStream )
     {
+        // TODO: I'm not too sure about how to handle closing all the streams, any help from more experienced devs would be much appreciated
+        // https://stackoverflow.com/questions/38698182/close-java-8-stream about closing streams?
+        // or https://stackoverflow.com/questions/76815547/if-an-ioexception-occurs-while-invoking-close-is-the-stream-closed-anyway
+
         this.configFile = this.configFileDirectory.resolve( this.configFileName ).toFile();
 
         if ( !this.configFile.exists() )
         {
-            try ( FileOutputStream fos = new FileOutputStream( this.configFile ); )
+            try ( defaultConfigFileInputStream; FileOutputStream fos = new FileOutputStream( this.configFile ); )
             {
                 this.configFile.createNewFile();
                 
-                System.err.printf( "%s config file not found, copying embedded file%n", this.name );
-                fos.write( this.getClass().getResourceAsStream( "/" + this.configFileName ).readAllBytes() );
+                System.err.printf( "%s config file not found, copying default file%n", this.name );
+                defaultConfigFileInputStream.transferTo( fos );
             }
-            catch ( IOException ioe )
+            catch ( IOException ioe ) 
             {
                 System.err.println( "IOException while copying default config file!" );
                 ioe.printStackTrace();
@@ -71,6 +107,14 @@ public class ConfigManager
         }
 
         System.out.println( "Finished checking config file!" );
+    }
+
+    /**
+     * Check if a config file exists already, and try to find one embedded in the JAR
+     */
+    private void checkConfigFile()
+    {
+        this.checkConfigFile( this.getClass().getResourceAsStream( "/" + this.configFileName ) );
     }
 
     /**
