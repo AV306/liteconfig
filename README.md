@@ -14,14 +14,14 @@ A very small and lightweight Java configuration manager.
 
 ## How to use
 
-1. Create (public, optionally static) fields to hold configurable values in a clas of your choice (e.g. `MainClass`)
+1. Create (public, optionally static) fields to hold configurable values in a class of your choice (e.g. `MainClass`)
 ```java
 public class MainClass [
   public int settingA = 4; // Default value: 4
   public booelan settingB = false; // Default value: false
   ...
 ```
-2. Create a template config file in your resource folder (`src/main/resources/` for Gradle)
+2. Create a template config file (to be embedded inside the JAR) in your resource folder (`src/main/resources/` for Gradle)
 3. Initialise a new ConfigManager instance in your entrypoint
 ```java
 import me.av306.liteconfig.ConfigManager;
