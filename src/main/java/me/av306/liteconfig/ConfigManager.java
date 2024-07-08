@@ -31,42 +31,19 @@ public class ConfigManager
     private File configFile; /** A {@Link java.io.File} object representing the config file, guaranteed to exist after {@Link #checkConfigFile} is run */
     
     /**
-     * Full constructor for a config manager.
-     * @param name: Name of the application, used in logging statements
-     * @param configFilePath: Path to the config file
-     * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties") (used to name the newly created one, if needed)
-     * @param defaultConfigFileInputStream: Input stream of content of the default config file
-     * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
-     * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
-     */
-    public ConfigManager(
-        String name, Path configFilePath, String configFileName,
-        InputStream defaultConfigFileInputStream,
-        Class<?> configurableClass,
-        Configurable configurableClassInstance )
-    {
-        this.name = name;
-        this.configFileDirectory = configFilePath;
-        this.configFileName = configFileName;
-        this.configurableClass = configurableClass;
-        this.configurableClassInstance = configurableClassInstance;
-
-        this.checkConfigFile( defaultConfigFileInputStream );
-        this.readConfigFile();
-    }
-
-    /**
      * Constructor for a config manager that tries to find a default config file in the JAR resources section
      * @param name: Name of the application, used in logging statements
      * @param configFilePath: Path to the config file
      * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties") (this will be used both to name the newly created one, and to find the embedded default one)
      * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
+     * @throws IOException, if any occurred while checking or reading the config file
      */
     public ConfigManager(
         String name, Path configFilePath, String configFileName,
         Class<?> configurableClass,
-        Configurable configurableClassInstance )
+        Configurable configurableClassInstance
+    ) throws IOException
     {
         this.name = name;
         this.configFileDirectory = configFilePath;
@@ -79,10 +56,10 @@ public class ConfigManager
     }
 
     /**
-     * Check for the existence of a config file, and copy the bundled one over if needed
-     * (Tries to handle the closing of the streams)
+     * Check for the existence of a config file, and copy the one on the classpath over if needed
+     * @throws IOException, if one was thrown while copying the default config file
      */
-    private void checkConfigFile( InputStream defaultConfigFileInputStream )
+    private void checkConfigFile() throws IOException
     {
         // TODO: I'm not too sure about how to handle closing all the streams, any help from more experienced devs would be much appreciated
         // https://stackoverflow.com/questions/38698182/close-java-8-stream about closing streams?
@@ -92,17 +69,20 @@ public class ConfigManager
 
         if ( !this.configFile.exists() )
         {
-            try ( defaultConfigFileInputStream; FileOutputStream fos = new FileOutputStream( this.configFile ); )
+            try (
+                InputStream defaultConfigFileInputStream = this.getClass().getResourceAsStream( "/" + this.configFileName );
+                FileOutputStream fos = new FileOutputStream( this.configFile ); )
             {
                 this.configFile.createNewFile();
                 
-                System.err.printf( "%s config file not found, copying default file%n", this.name );
+                System.err.printf( "%s config file not found, copying default config file%n", this.name );
                 defaultConfigFileInputStream.transferTo( fos );
             }
             catch ( IOException ioe ) 
             {
                 System.err.println( "IOException while copying default config file!" );
                 ioe.printStackTrace();
+                throw ioe; // Re-throw for user app to handle exception
             }
         }
 
@@ -110,19 +90,13 @@ public class ConfigManager
     }
 
     /**
-     * Check if a config file exists already, and try to find one embedded in the JAR
-     */
-    private void checkConfigFile()
-    {
-        this.checkConfigFile( this.getClass().getResourceAsStream( "/" + this.configFileName ) );
-    }
-
-    /**
      * Read configs from the config file.
      * 
-     * NOTE: entries in the config file MUST match field names EXACTLY.
+     * NOTE: entries in the config file MUST match field names EXACTLY
+     * 
+     * @throws IOException, if one was thrown while reading from the file
      */
-    public void readConfigFile()
+    public void readConfigFile() throws IOException
     {
         try ( BufferedReader reader = new BufferedReader( new FileReader( this.configFile ) ) )
         {
@@ -193,20 +167,25 @@ public class ConfigManager
                     System.err.printf( "Could not set field involved in: %s%m", line );
                     illegal.printStackTrace();
                 }
+
+                System.out.printf( "Set config %s to %s%n", entry[0], entry[1] );
             }
         }
         catch ( IOException ioe )
         {
             System.err.printf( "IOException while reading config file: %s%n", ioe.getMessage() );
+            throw ioe;
         }
 
         System.out.println( "Finished reading config file!" );
     }
 
     /**
-     * Save the modified configs into the config file.
+     * Save the modified configs into the config file
+     * 
+     * @throws IOException, if one was thrown while saving the file
      */
-    public void saveConfigFile()
+    public void saveConfigFile() throws IOException
     {
         // Check old config file
         // POV: user deleted config file partway through execution
@@ -220,9 +199,10 @@ public class ConfigManager
         }
         catch ( IOException ioe )
         {
-            System.err.println( "IOException while creating temporary config file; not saving configs" );
+            System.err.printf( "IOException while creating temporary config file (not saving configs): %s" );
             ioe.printStackTrace();
-            return;
+            throw ioe;
+            //return;
         }
 
         // Scan through each line in the config file
@@ -299,7 +279,7 @@ public class ConfigManager
                 {
                     // IOException when writing line
                     System.err.printf( "IOException while saving config line: %s%n", line );
-                    ioe.printStackTrace();
+                    // Continue saving...
                 }
             } );
 
@@ -318,8 +298,9 @@ public class ConfigManager
         catch ( IOException ioe )
         {
             // IOException somewhere else (ugh)
-            System.err.printf( "IOException while saving config file" );
-            ioe.printStackTrace();
+            System.err.printf( "IOException while saving config file: %s%n", ioe.getMessage() );
+            throw ioe;
+            //ioe.printStackTrace();
         }
 
         System.out.println( "Finished saving config file!" );
