@@ -1,48 +1,71 @@
-/**
- * Feel free to copy this into your own project, but just
- * take note of the MIT license (tl;dr: do whatever you want, but no warranty) :)
- */
-
 package me.av306.liteconfig;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Format;
+import java.util.ArrayList;
+import java.util.Locale;
 
 /**
- * Configuration manager. Handles reading/saving config file, and setting fields in confugurable class.
- */
+ * Handles reading/saving config file, and setting fields in confugurable class.
+ * 
+ * Note: when you use this, you should change a few things:
+ * - logging proxy methods (uses System.out/err by default; doesn't support format strings)
+ * - logging messages (e.g. adding identifiers)
+ * 
+*/
 public class ConfigManager
 {
-    private final String name; /** Application name, used to locate config file */
+    private final String name; /** Application name, used only for logging */
     private final Path configFileDirectory; /** Directory containing the config file */
     private final String configFileName; /** Name of the config file */
     private final Class<?> configurableClass; /** The Class object holding the config fields */
-    private Configurable configurableClassInstance; /** The instance on which to set the config fields (if instance fields are used) */
+    private Object configurableClassInstance; /** The Class instance on which to set the config fields (if instance fields are used) */
 
-    private File configFile; /** A {@Link java.io.File} object representing the config file, guaranteed to exist after {@Link #checkConfigFile} is run */
+    /** A File object representing the config file, guaranteed to exist after checkConfigFile() is run */
+    private File configFile;
+
+    /** True if there were errors when reading the config file */
+    public boolean errorFlag = false;
+
+    /** Logging proxy method; replace contents with your logging method */
+    private static void logInfo( String format, Object... params )
+    {
+    }
+    System.out.println( "[INFO] " + format );
+
+    /** Logging proxy method; replace contents with your logging method */
+    private static void logWarning( String format, Object... params )
+    {
+        System.out.println( "[WARN] " + format );
+    }
+
+    /** Logging proxy method; replace contents with your logging method */
+    private static void logError( String format, Object... params )
+    {
+        System.err.println( format );
+    }
     
     /**
-     * Constructor for a config manager that tries to find a default config file in the JAR resources section
+     * Constructor that tries to find a default config file in the JAR resources section.
+     * This constructor calls checkConfigFileExists() and readConfigFile().
+     *
      * @param name: Name of the application, used in logging statements
      * @param configFilePath: Path to the config file
      * @param configFileName: Name of the config file (with extension, e.g. "app_config.properties") (this will be used both to name the newly created one, and to find the embedded default one)
      * @param configurableClass: {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance: Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
-     * @throws IOException, if any occurred while checking or reading the config file
      */
     public ConfigManager(
         String name, Path configFilePath, String configFileName,
         Class<?> configurableClass,
-        Configurable configurableClassInstance
+        Object configurableClassInstance
     ) throws IOException
     {
         this.name = name;
@@ -51,15 +74,14 @@ public class ConfigManager
         this.configurableClass = configurableClass;
         this.configurableClassInstance = configurableClassInstance;
 
-        this.checkConfigFile();
+        this.checkConfigFileExists();
         this.readConfigFile();
     }
 
     /**
      * Check for the existence of a config file, and copy the one on the classpath over if needed
-     * @throws IOException, if one was thrown while copying the default config file
-     */
-    private void checkConfigFile() throws IOException
+    */
+    public void checkConfigFileExists() throws IOException
     {
         // TODO: I'm not too sure about how to handle closing all the streams, any help from more experienced devs would be much appreciated
         // https://stackoverflow.com/questions/38698182/close-java-8-stream about closing streams?
@@ -69,57 +91,61 @@ public class ConfigManager
 
         if ( !this.configFile.exists() )
         {
+            // Config file doesn't exist - create it by copying the template from resources
             try (
                 InputStream defaultConfigFileInputStream = this.getClass().getResourceAsStream( "/" + this.configFileName );
-                FileOutputStream fos = new FileOutputStream( this.configFile ); )
+                FileOutputStream fos = new FileOutputStream( this.configFile )
+            )
             {
                 this.configFile.createNewFile();
                 
-                System.err.printf( "%s config file not found, copying default config file%n", this.name );
+                logWarning( "{} config file not found, copying default config file", this.name );
                 defaultConfigFileInputStream.transferTo( fos );
             }
             catch ( IOException ioe ) 
             {
-                System.err.println( "IOException while copying default config file!" );
+                logError( "IOException while copying default config file!" );
                 ioe.printStackTrace();
                 throw ioe; // Re-throw for user app to handle exception
             }
         }
 
-        System.out.println( "Finished checking config file!" );
+        logInfo( "Config file exists!" );
     }
 
     /**
-     * Read configs from the config file.
-     * 
-     * NOTE: entries in the config file MUST match field names EXACTLY
-     * 
-     * @throws IOException, if one was thrown while reading from the file
-     */
+     * Read configs from the config file. Sets hasCustomData if invalid config statements were read.
+    * <br>
+    * NOTE: entries in the config file MUST match field names EXACTLY (case-insensitive)
+    */
     public void readConfigFile() throws IOException
     {
+        // Reset error flag
+        this.errorFlag = false;
+
         try ( BufferedReader reader = new BufferedReader( new FileReader( this.configFile ) ) )
         {
             // Iterate over each line in the file
             for ( String line : reader.lines().toArray( String[]::new ) )
             {
                 // Skip comments and blank lines
-                if ( line.startsWith( "#" ) || line.isBlank() ) continue;
+                if ( line.trim().startsWith( "#" ) || line.isBlank() ) continue;
                 
                 // Split it by the equals sign (.properties format)
                 String[] entry = line.split( "=" );
 
-                // Trim lines so you can have spaces around the equals ("prop = val" as opposed to "prop=val")
-                entry[0] = entry[0].trim();
-                entry[1] = entry[1].trim();
-
-                // Set fields in configurable class
                 try
                 {
-                    Field f = this.configurableClass.getDeclaredField( entry[0] );
+                    // Trim lines so you can have spaces around the equals ("prop = val" as opposed to "prop=val")
+                    entry[0] = entry[0].trim();
+                    entry[1] = entry[1].trim();
+
+                    // Set fields in configurable class
+                    Field f = this.configurableClass.getDeclaredField( entry[0].toUpperCase( Locale.getDefault() ) );
+                    Class<?> fieldTypeClass = f.getType();
                     
                     //System.out.println( f.getType().getName() );
-                    if ( f.getType().isAssignableFrom( short.class ) )
+                    if ( fieldTypeClass.isAssignableFrom( short.class ) )
                     {
                         // Short value (0x??)
                         f.setShort( this.configurableClassInstance, Short.parseShort(
@@ -127,182 +153,128 @@ public class ConfigManager
                                 16 )
                         );
                     }
-                    else if ( f.getType().isAssignableFrom( int.class ) )
+                    else if ( fieldTypeClass.isAssignableFrom( int.class ) )
                     {
                         // Integer value
-                        f.setInt(
+                        if ( entry[1].startsWith( "0x" ) )
+                        {
+                            // Hex literal
+                            Integer.parseInt(
+                                    entry[1].replace( "0x", "" ),
+                                    16
+                            );
+                        }
+                        else f.setInt(
                             this.configurableClassInstance,
                             Integer.parseInt( entry[1] )
                         );
                     }
-                    else if ( f.getType().isAssignableFrom( float.class ) )
+                    else if ( fieldTypeClass.isAssignableFrom( float.class ) )
                     {
                         f.setFloat(
                             this.configurableClassInstance,
                             Float.parseFloat( entry[1] )
                         );
                     }
-                    else if ( f.getType().isAssignableFrom( boolean.class ) )
+                    else if ( fieldTypeClass.isAssignableFrom( boolean.class ) )
                     {
                         f.setBoolean(
                             this.configurableClassInstance,
                             Boolean.parseBoolean( entry[1] )
                         );
                     }
+                    else if ( fieldTypeClass.isAssignableFrom( ArrayList.class ) )
+                    {
+                        // I HATE TYPE ERASURE GRRR
+                        // Fck this i'm kicking the can down the road
+                        // only supports int lists
+                        // FIXME: someone help me with the stupid type thing
+
+                        // Remove opening square brackets and commas
+                        ArrayList<Integer> list = new ArrayList<>();
+                                
+                        for ( String e : entry[1].replaceAll( "[\\[\\]\\s]+", "" ).split( "," ) )
+                            list.add( Integer.parseInt( e ) );
+                        
+                        //list.forEach( e -> logInfo( "{}",e ) );
+
+                        f.set( this.configurableClassInstance, list );
+
+                        //String typeParamName = ((Class<?>) ((ParameterizedType) fieldTypeClass.getGenericSuperclass()).getActualTypeArguments()[0]).getName();
+                        //logInfo( "FOund ArrayList of type {}", typeParamName );
+                        /*switch( typeParamName )
+                        {
+                            case "java.lang.Integer" ->
+                            {
+                                // Remove opening square brackets and commas
+                                ArrayList<Integer> list = new ArrayList<>();
+                                
+                                for ( String e : entry[1].replaceAll( "[],", "" ).split( " " ) )
+                                    list.add( Integer.parseInt( e ) );
+                                
+                                logInfo( list.toString() );
+
+                                f.set( this.configurableClassInstance, list );
+                            }
+
+                            case "java.lang.String" ->
+                            {
+                                f.set(
+                                    this.configurableClassInstance,
+                                    new ArrayList<>( Arrays.asList( entry[1].replaceAll( "[],", "" ).split( " " ) ) )
+                                );
+                            }
+
+                            default ->
+                            {
+                                logError( "Unsupported array type {} for config entry {}", typeParamName, line );
+                            }
+                        }*/
+                    }
                     else
                     {
-                        System.err.printf( "Unrecognised data type for config entry %s%n", line );
+                        logError( "Unrecognised data type for config entry {}", line );
                     }
-                }
-                catch ( ArrayIndexOutOfBoundsException | NumberFormatException e )
-                {
-                    System.err.printf( "Malformed config entry: %s%n", line );
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
-                    System.err.printf( "No matching field found for config entry: %s%n", line );
+                    logError( "No matching field found for config entry: {}", entry[0] );
+                    this.errorFlag = true;
                 }
                 catch ( IllegalAccessException illegal )
                 {
-                    System.err.printf( "Could not set field involved in: %s%m", line );
+                    logError( "Could not set field involved in: {}", line );
+                    this.errorFlag = true;
                     illegal.printStackTrace();
                 }
+                catch ( /*ArrayIndexOutOfBoundsException | NumberFormatException*/ Exception e )
+                {
+                    logError( "Malformed config entry: {}", line );
+                    this.errorFlag = true;
+                }
 
-                System.out.printf( "Set config %s to %s%n", entry[0], entry[1] );
+                //System.out.printf( "Set config %s to %s%n", entry[0], entry[1] );
             }
         }
         catch ( IOException ioe )
         {
-            System.err.printf( "IOException while reading config file: %s%n", ioe.getMessage() );
+            logError( "IOException while reading config file: {}", ioe.getMessage() );
             throw ioe;
         }
 
-        System.out.println( "Finished reading config file!" );
+        logInfo( "Finished reading config file!" );
     }
 
     /**
-     * Save the modified configs into the config file
-     * 
-     * @throws IOException, if one was thrown while saving the file
+     * Print all configuration variables and values.
      */
-    public void saveConfigFile() throws IOException
+    public void printAllConfigs()
     {
-        // Check old config file
-        // POV: user deleted config file partway through execution
-        this.checkConfigFile();
-
-        // Create temporary config file
-        File tempConfigFile;
-        try
+        logInfo( "Dumping configs:" );
+        for ( var f : this.configurableClass.getDeclaredFields() )
         {
-            tempConfigFile = File.createTempFile( this.configFileName, ".tmp" );
+            try { logInfo( "\t{}: {}", f.getName(), f.get( this.configurableClassInstance ) ); }
+            catch ( IllegalAccessException | NullPointerException ignored ) {}
         }
-        catch ( IOException ioe )
-        {
-            System.err.printf( "IOException while creating temporary config file (not saving configs): %s" );
-            ioe.printStackTrace();
-            throw ioe;
-            //return;
-        }
-
-        // Scan through each line in the config file
-        try (
-            BufferedReader reader = new BufferedReader( new FileReader( this.configFile ) );
-            BufferedWriter writer = new BufferedWriter( new FileWriter( tempConfigFile ) )
-        )
-        {
-            reader.lines().forEach( line ->
-            {
-                try
-                {
-                    // Copy comments and blank lines, then continue
-                    if ( line.startsWith( "#" ) || line.isBlank() )
-                    {
-                        writer.write( line );
-                        return;
-                    }
-
-                    // Split line
-                    String[] entry = line.trim().split( "=" );
-                    entry[0] = entry[0].trim();
-                    //entry[1] = entry[1].trim();
-                    
-                    // Serialise config value from field
-                    // Catch problems here and continue, to ensure other configs are written
-                    try
-                    {
-                        Field f = this.configurableClass.getDeclaredField( entry[0] );
-
-                        if ( f.getType().isAssignableFrom( short.class ) )
-                        {
-                            // Short value (0x??)
-                            entry[1] = "0x" + f.getShort( this.configurableClassInstance );
-                        }
-                        else if ( f.getType().isAssignableFrom( int.class ) )
-                        {
-                            // Integer value
-                            entry[1] = String.valueOf( f.getInt( this.configurableClassInstance ) );
-                        }
-                        else if ( f.getType().isAssignableFrom( float.class ) )
-                        {
-                            entry[1] = String.valueOf( f.getFloat( this.configurableClassInstance ) );
-                        }
-                        else if ( f.getType().isAssignableFrom( boolean.class ) )
-                        {
-                            entry[1] = String.valueOf( f.getBoolean( this.configurableClassInstance ) );
-                        }
-                        else
-                        {
-                            System.err.printf( "Unrecognised data type for config entry %s%n", line );
-                        }
-                    }
-                    catch ( ArrayIndexOutOfBoundsException oobe )
-                    {
-                        // Malformed config line
-                        System.out.printf( "Malformed config line: %s%n", line );
-                    }
-                    catch ( NoSuchFieldException nsfe )
-                    {
-                        // Invalid config key
-                        System.err.printf( "No matching field found for config entry: %s%n", entry[0] );
-                    }
-                    catch ( IllegalAccessException illegal )
-                    {
-                        // Illegal field access
-                        System.err.printf( "Illegal access on field %s%n", entry[0] );
-                    }
-
-                    // Write modified line to temp file
-                    writer.write( entry[0] + "=" + entry[1] );
-                }
-                catch ( IOException ioe )
-                {
-                    // IOException when writing line
-                    System.err.printf( "IOException while saving config line: %s%n", line );
-                    // Continue saving...
-                }
-            } );
-
-            // Backup old file
-            Files.move(
-                this.configFile.toPath(),
-                this.configFile.toPath().resolveSibling( this.configFileName + ".bak" )
-            );
-
-            // Move temp file over
-            Files.move(
-                tempConfigFile.toPath(),
-                this.configFileDirectory.resolve( this.configFileName )
-            );
-        }
-        catch ( IOException ioe )
-        {
-            // IOException somewhere else (ugh)
-            System.err.printf( "IOException while saving config file: %s%n", ioe.getMessage() );
-            throw ioe;
-            //ioe.printStackTrace();
-        }
-
-        System.out.println( "Finished saving config file!" );
     }
 }
