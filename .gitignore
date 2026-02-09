@@ -7,3 +7,5 @@ build
 .vscode
 
 bin/
+# Ignore Kotlin plugin data
+.kotlin
