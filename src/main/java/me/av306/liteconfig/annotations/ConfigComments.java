@@ -12,5 +12,9 @@ import java.lang.annotation.Target;
 @Target( {ElementType.FIELD, ElementType.TYPE} )
 public @interface ConfigComments
 {
+    /**
+     * Get the set of ConfigComment annotations.
+     * @return An array containing the annotations
+     */
     ConfigComment[] value();
 }

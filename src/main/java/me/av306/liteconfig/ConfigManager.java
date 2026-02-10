@@ -2,11 +2,9 @@ package me.av306.liteconfig;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
@@ -14,15 +12,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.rmi.UnexpectedException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Locale;
 
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import me.av306.liteconfig.annotations.ConfigComment;
-import me.av306.liteconfig.annotations.ConfigComments;
 import me.av306.liteconfig.annotations.IgnoreConfig;
 
 /**
@@ -82,27 +77,27 @@ public class ConfigManager
         this.configurableClassInstance = configurableClassInstance;
 
         this.LOGGER = LoggerFactory.getLogger( name );
-
-        if ( !this.createConfigFileIfNeeded() )
-            this.readConfigFile();
     }
 
     /**
-     * Check for the existence of a config file, creating a new one if needed
+     * Check for the existence of a config file, creating a new one if needed.
      * @return true if a new config file was created, false otherwise
      */
-    public final boolean createConfigFileIfNeeded() throws IOException
+    public boolean deserialiseConfigFileOrElseCreate() throws IOException
     {
         if ( !this.configFilePath.toFile().exists() )
         {
+            this.LOGGER.info( "Configuration file does not exist, will create a new one at {}", this.configFilePath.toString() );
             this.serialiseConfigsToFile();            
 
-            this.LOGGER.info( "Created new config file at {}", this.configFilePath.toString() );
+            this.LOGGER.info( "Created new configuration file at {}", this.configFilePath.toString() );
             return true;
         }
         else
         {
-            this.LOGGER.info( "Config file already exists!" );
+            this.LOGGER.info( "Config file already exists; will read configs from {}",
+                    this.configFilePath.toString() );
+            this.deserialiseConfigFile();
             return false;
         }
     }
@@ -110,16 +105,18 @@ public class ConfigManager
     /**
      * Read configs from the config file. Sets hasCustomData if invalid config statements were read.
      * <br>
-     * NOTE: entries in the config file MUST match field names EXACTLY (case-insensitive)
+     * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
      */
-    public final void readConfigFile() throws IOException
+    public void deserialiseConfigFile() throws IOException
     {
+        // TODO: next step: bounds checking with annotations?
         // Reset error flag
         this.errorFlag = false;
 
         try ( BufferedReader reader = Files.newBufferedReader( this.configFilePath ) )
         {
             // Iterate over each line in the file
+            // TODO: this can be parallelised
             for ( String line : reader.lines().toArray( String[]::new ) )
             {
                 // Skip comments and blank lines
@@ -138,9 +135,9 @@ public class ConfigManager
                     Field f = this.configurableClass.getDeclaredField( entry[0] );
                     Class<?> fieldTypeClass = f.getType();
                     
+                    // Parse the string according to its target field type
                     if ( fieldTypeClass.isAssignableFrom( short.class ) )
                     {
-                        // Short value (0x??)
                         if ( value.startsWith( "0x" ) )
                         {
                             f.setShort( this.configurableClassInstance,
@@ -153,7 +150,6 @@ public class ConfigManager
                     }
                     else if ( fieldTypeClass.isAssignableFrom( int.class ) )
                     {
-                        // Integer value
                         if ( entry[1].startsWith( "0x" ) )
                         {
                             // Hex literal
@@ -229,7 +225,7 @@ public class ConfigManager
                         else
                         {
                             this.LOGGER.error( "Unsupported ArrayList type {} for config field {}",
-                            arrayTypeParameter.getName(), name );
+                                    arrayTypeParameter.getName(), name );
                             this.errorFlag = true;
                         }
                     }
@@ -262,55 +258,17 @@ public class ConfigManager
             this.LOGGER.error( "IOException while reading config file: {}", ioe.getMessage() );
             throw ioe;
         }
-
+        
         this.LOGGER.info( "Finished reading config file!" );
     }
 
-    public void printAllConfigs()
-    {
-        this.LOGGER.info( "All configs:" );
-        for ( var f : this.configurableClass.getDeclaredFields() )
-        {
-            try { this.LOGGER.info( "\t{}: {}", f.getName(), f.get( this.configurableClassInstance ) ); }
-            catch ( IllegalAccessException | NullPointerException ignored ) {}
-        }
-    }
-
     /**
-     * Serialise a given field.
-     * @param field The target field
-     * @return A string representation of the field's value
-     * @throws IllegalAccessException If the field cannot be accessed, e.g. it is private
+     * Serialise the values from the configuration class into the config file.
+     * @throws IOException If one occurred while writing
      */
-    private String formatFieldValue( Field field ) throws IllegalAccessException
-    {
-        Class<?> fieldTypeClass = field.getType();
-        if ( fieldTypeClass.isAssignableFrom( short.class ) )
-        {
-            return String.format( "0x%02X", field.getShort( this.configurableClassInstance ) );
-        }
-        else if ( fieldTypeClass.isAssignableFrom( int.class ) )
-        {
-            return String.format( "%d", field.getInt( this.configurableClassInstance ) );
-        }
-        else if ( fieldTypeClass.isAssignableFrom( float.class ) )
-        {
-            return String.format( "%f", field.getFloat( this.configurableClassInstance ) );
-        }
-        else if ( fieldTypeClass.isAssignableFrom( double.class ) )
-        {
-            return String.format( "%f", field.getDouble( this.configurableClassInstance ) );
-        }
-        else if ( fieldTypeClass.isAssignableFrom( boolean.class ) )
-        {
-            return String.format( "%b", field.getBoolean( this.configurableClassInstance ) );
-        }
-        else return field.get( this.configurableClassInstance ).toString();
-    }
-
-    private void serialiseConfigsToFile() throws IOException
+    public void serialiseConfigsToFile() throws IOException
     {   
-        try ( BufferedWriter writer = Files.newBufferedWriter( this.configFilePath, StandardOpenOption.CREATE_NEW ) )
+        try ( BufferedWriter writer = Files.newBufferedWriter( this.configFilePath, StandardOpenOption.CREATE ) )
         {
             // Write the top-level comments, if any
 
@@ -326,12 +284,18 @@ public class ConfigManager
                 writer.write( System.lineSeparator() );
             }
 
-            // For each line in the config file, retrieve the field and
-            // write its default value and comment (if any)
+            // For each line in the config file, retrieve the field
+            // and write its default value and comment (if any)
+            // Note: this gets us instance fields too
             for ( var field : this.configurableClass.getDeclaredFields() )
             {
                 // Ignore fields with the IgnoreConfig annotation
                 if ( field.isAnnotationPresent( IgnoreConfig.class ) ) continue;
+
+                // Ignore instance fields if the configuration class instance is null
+                // TODO: Annotation defining whether to ignore static and/or instance fields
+                if ( !Modifier.isStatic( field.getModifiers() ) && this.configurableClassInstance == null )
+                    continue;
 
                 // Length may be 0
                 ConfigComment[] comments = field.getAnnotationsByType( ConfigComment.class );
@@ -342,22 +306,28 @@ public class ConfigManager
                 Class<?> fieldTypeClass = field.getType();
                 
                 try
-                {
-                    // We don't need to care about the specific type for serialisation
+                {   
                     if ( fieldTypeClass.isAssignableFrom( ArrayList.class ) )
                     {
-                        ArrayList<? extends Object> array = (ArrayList<? extends Object>) field.get( this.configurableClassInstance );
+                        Type[] actualTypeArguments = ((ParameterizedType) field.getGenericType()).getActualTypeArguments();
+                        if ( actualTypeArguments.length != 1 ) throw new UnexpectedException( "Invalid number of ArrayList type arguments: expected 1, received " + actualTypeArguments.length );
+                        Class<?> arrayTypeParameter = (Class<?>) actualTypeArguments[0];   
+                        
+                        // Treat everything as Objects
+                        ArrayList<?> array = (ArrayList<?>) field.get( this.configurableClassInstance );
+
                         StringBuilder arrayString = new StringBuilder( "[" );
                         for ( int i = 0; i < array.size(); i++ )
                         {
-                            arrayString.append( array.get( i ) );
+                            arrayString.append( formatFieldValue( array.get( i ), arrayTypeParameter ) );
                             if ( i < array.size() - 1 ) arrayString.append( ", " );
                         }
+
                         arrayString.append( "]" );
                         
                         writer.write( String.format(
                             "%s=%s%s",
-                            field.getName().toUpperCase(), 
+                            field.getName(), 
                             arrayString.toString(),
                             System.lineSeparator()
                         ) );
@@ -367,16 +337,23 @@ public class ConfigManager
                         // Non-array type
                         writer.write( String.format(
                             "%s=%s%s",
-                            field.getName().toUpperCase(), 
-                            this.formatFieldValue( field ),
+                            field.getName(), 
+                            formatFieldValue( field, this.configurableClassInstance ),
                             System.lineSeparator()
                         ) );
                     }
                 }
                 catch ( IllegalAccessException illegal )
                 {
+                    // This is thrown if the field is private
                     this.LOGGER.error( "Could not access field {} while creating config file", field.getName() );
                     //illegal.printStackTrace();
+                }
+                catch ( NullPointerException npe )
+                {
+                    // This is thrown if the field is an instance field but we haven't been
+                    // given an instance.
+                    this.LOGGER.warn( "Failed to access instance field {}: no instance was provided.", field.getName() );
                 }
             }
         }
@@ -385,5 +362,83 @@ public class ConfigManager
             this.LOGGER.error( "IOException while creating config file: {}", ioe.getMessage() );
             throw ioe;
         }
+    }
+
+    public void printAllConfigs()
+    {
+        this.LOGGER.info( "All configs:" );
+        for ( var f : this.configurableClass.getDeclaredFields() )
+        {
+            try { this.LOGGER.info( "\t{}: {}", f.getName(), f.get( this.configurableClassInstance ) ); }
+            catch ( IllegalAccessException | NullPointerException ignored ) {}
+        }
+    }
+
+
+
+    /**
+     * Serialise a given field.
+     * @param field The target field
+     * @return A string representation of the field's value
+     * @throws IllegalAccessException If the field cannot be accessed, e.g. it is private
+     * @throws NullPointerException If instance is null and the field is an instance field
+     */
+    private static String formatFieldValue( Field field, Object instance ) throws IllegalAccessException, NullPointerException
+    {
+        // FIXME: I'm not sure what's the importance of the field.getX calls,
+        // given that in the next overload we're just passing the values as Objects
+        Class<?> fieldTypeClass = field.getType();
+        if ( fieldTypeClass.isAssignableFrom( short.class ) )
+        {
+            return String.format( "0x%02X", field.getShort( instance ) );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( int.class ) )
+        {
+            return String.format( "%d", field.getInt( instance ) );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( float.class ) )
+        {
+            return String.format( "%f", field.getFloat( instance ) );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( double.class ) )
+        {
+            return String.format( "%f", field.getDouble( instance ) );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( boolean.class ) )
+        {
+            return String.format( "%b", field.getBoolean( instance ) );
+        }
+        else return field.get( instance ).toString();
+    }
+
+    /**
+     * Serialise a given object.
+     * @param value The object to be serialised
+     * @param fieldTypeClass The type of the object
+     * @return A String representation of the object
+     */
+    private static String formatFieldValue( Object value, Class<?> fieldTypeClass )
+    {
+        if ( fieldTypeClass.isAssignableFrom( short.class ) )
+        {
+            return String.format( "0x%02X", value );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( int.class ) )
+        {
+            return String.format( "%d", value );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( float.class ) )
+        {
+            return String.format( "%f", value );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( double.class ) )
+        {
+            return String.format( "%f", value );
+        }
+        else if ( fieldTypeClass.isAssignableFrom( boolean.class ) )
+        {
+            return String.format( "%b", value );
+        }
+        else return value.toString();
     }
 }
