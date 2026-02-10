@@ -364,11 +364,18 @@ public class ConfigManager
         }
     }
 
+    /**
+     * Print the values of all the configuration fields that this 
+     */
     public void printAllConfigs()
     {
         this.LOGGER.info( "All configs:" );
         for ( var f : this.configurableClass.getDeclaredFields() )
         {
+            // TODO: ignore static/instance fields based on annotation (see above)
+            if ( !Modifier.isStatic( f.getModifiers() ) && this.configurableClassInstance == null )
+                continue;
+
             try { this.LOGGER.info( "\t{}: {}", f.getName(), f.get( this.configurableClassInstance ) ); }
             catch ( IllegalAccessException | NullPointerException ignored ) {}
         }

@@ -77,9 +77,9 @@ public class ConfigManagerTest
      * @throws IOException
      */
     @Test
-    void testStaticConfigurationClass( @TempDir Path tempDir ) throws IOException
+    void testStaticConfigurationSerialisation( @TempDir Path tempDir ) throws IOException
     {
-        String configFileName = "test_static_configuration_class.properties";
+        String configFileName = "test_static_configuration_serialisation.properties";
 
         Path configFilePath = tempDir.resolve( configFileName );
 
@@ -153,10 +153,10 @@ public class ConfigManagerTest
     }
 
     @Test
-    void testInstanceConfigurationClass( @TempDir Path tempDir ) throws IOException
+    void testInstanceConfigurationSerialisation( @TempDir Path tempDir ) throws IOException
     {
         // TODO: this needs to ignore the static field values
-        String configFileName = "test_instance_configuration_class.properties";
+        String configFileName = "test_instance_configuration_serialisation.properties";
         Path configFilePath = tempDir.resolve( configFileName );
 
         Configurations configurationsInstance = new Configurations();
@@ -213,7 +213,19 @@ public class ConfigManagerTest
     }
 
     @Test
-    void testConfigFileDeserialisation()
+    void testStaticConfigurationDeserialisation()
+    {
+
+    }
+
+    @Test
+    void testInstanceCOnfigurationDeserialisastion()
+    {
+        
+    }
+
+    @Test
+    void testPrintAllConfigs()
     {
 
     }
