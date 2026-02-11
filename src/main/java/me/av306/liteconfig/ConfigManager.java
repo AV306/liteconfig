@@ -38,9 +38,10 @@ public class ConfigManager
     private final Logger LOGGER;
     
     /**
-     * True if there were errors when reading the config file.
+     * True if there were errors when deserialising the config file.
      */
-    public boolean errorFlag = false;
+    private boolean deserialisationErrorFlag = false;
+    public boolean hasErrors() { return this.deserialisationErrorFlag; }
     
 
     
@@ -106,18 +107,19 @@ public class ConfigManager
      * Read configs from the config file. Sets hasCustomData if invalid config statements were read.
      * <br>
      * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
+     * @throws IOException If one occurred during deserialisaation
+     * @throws UnsupportedOperationException If an unsupported data type is encountered during deserialisation
      */
-    public void deserialiseConfigFile() throws IOException
+    public void deserialiseConfigFile() throws IOException, UnsupportedOperationException
     {
         // TODO: next step: bounds checking with annotations?
         // Reset error flag
-        this.errorFlag = false;
+        this.deserialisationErrorFlag = false;
 
         try ( BufferedReader reader = Files.newBufferedReader( this.configFilePath ) )
         {
             // Iterate over each line in the file
-            // TODO: this can be parallelised
-            for ( String line : reader.lines().toArray( String[]::new ) )
+            reader.lines().parallel().forEach( line ->
             {
                 // Skip comments and blank lines
                 if ( line.trim().startsWith( "#" ) || line.isBlank() ) continue;
@@ -125,6 +127,7 @@ public class ConfigManager
                 // Split it by the equals sign (.properties format)
                 String[] entry = line.split( "=" );
 
+                // TODO: extract this into a method
                 try
                 {
                     // Trim lines so you can have spaces around the equals ("prop = val" as opposed to "prop=val")
@@ -226,32 +229,33 @@ public class ConfigManager
                         {
                             this.LOGGER.error( "Unsupported ArrayList type {} for config field {}",
                                     arrayTypeParameter.getName(), name );
-                            this.errorFlag = true;
+                            this.deserialisationErrorFlag = true;
                         }
                     }
                     else
                     {
-                        this.LOGGER.error( "Unrecognised data type {} for config entry: {}",
+                        this.LOGGER.error( "Unsupported data type {} for config entry: {}",
                                 fieldTypeClass.getName(), line );
+                        throw new UnsupportedOperationException( "Unsupported data type: " + fieldTypeClass.getName() );
                     }
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
                     this.LOGGER.error( "No matching field found for config entry: {}", entry[0] );
-                    this.errorFlag = true;
+                    this.deserialisationErrorFlag = true;
                 }
                 catch ( IllegalAccessException illegal )
                 {
                     this.LOGGER.error( "Could not set field involved in: {}", line );
                     this.LOGGER.error( "NOTE: This is not a problem with LiteConfig! The user of this library likely has made the field private and/or final." );
-                    this.errorFlag = true;
+                    this.deserialisationErrorFlag = true;
                 }
                 catch ( /*ArrayIndexOutOfBoundsException | NumberFormatException*/ Exception e )
                 {
                     this.LOGGER.error( "Malformed config entry: {}", line );
-                    this.errorFlag = true;
+                    this.deserialisationErrorFlag = true;
                 }
-            }
+            } );
         }
         catch ( IOException ioe )
         {
@@ -319,7 +323,7 @@ public class ConfigManager
                         StringBuilder arrayString = new StringBuilder( "[" );
                         for ( int i = 0; i < array.size(); i++ )
                         {
-                            arrayString.append( formatFieldValue( array.get( i ), arrayTypeParameter ) );
+                            arrayString.append( serialiseField( array.get( i ), arrayTypeParameter ) );
                             if ( i < array.size() - 1 ) arrayString.append( ", " );
                         }
 
@@ -338,7 +342,7 @@ public class ConfigManager
                         writer.write( String.format(
                             "%s=%s%s",
                             field.getName(), 
-                            formatFieldValue( field, this.configurableClassInstance ),
+                            serialiseField( field, this.configurableClassInstance ),
                             System.lineSeparator()
                         ) );
                     }
@@ -365,7 +369,8 @@ public class ConfigManager
     }
 
     /**
-     * Print the values of all the configuration fields that this 
+     * Print the values of all the configuration fields accessible to this
+     * ConfigManager.
      */
     public void printAllConfigs()
     {
@@ -384,13 +389,14 @@ public class ConfigManager
 
 
     /**
-     * Serialise a given field.
+     * Serialise a given {java.lang.reflect.Field}.
      * @param field The target field
+     * @param instance The instance of the object containing the field
      * @return A string representation of the field's value
      * @throws IllegalAccessException If the field cannot be accessed, e.g. it is private
      * @throws NullPointerException If instance is null and the field is an instance field
      */
-    private static String formatFieldValue( Field field, Object instance ) throws IllegalAccessException, NullPointerException
+    private static String serialiseField( Field field, @Nullable Object instance ) throws IllegalAccessException, NullPointerException
     {
         // FIXME: I'm not sure what's the importance of the field.getX calls,
         // given that in the next overload we're just passing the values as Objects
@@ -424,7 +430,7 @@ public class ConfigManager
      * @param fieldTypeClass The type of the object
      * @return A String representation of the object
      */
-    private static String formatFieldValue( Object value, Class<?> fieldTypeClass )
+    private static String serialiseField( Object value, Class<?> fieldTypeClass )
     {
         if ( fieldTypeClass.isAssignableFrom( short.class ) )
         {
