@@ -9,3 +9,5 @@ build
 bin/
 # Ignore Kotlin plugin data
 .kotlin
+
+.idea/

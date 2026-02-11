@@ -8,8 +8,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,9 +39,9 @@ public class ConfigManagerTest
         public static String IGNORED_FIELD = ":O";
 
         public static ArrayList<Integer> STATIC_INT_ARRAYLIST
-                = new ArrayList<>( Arrays.asList( new Integer[]{2, 4, 6, 8, 10} ) );
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
         public static ArrayList<String> STATIC_STRING_ARRAYLIST
-                = new ArrayList<>( Arrays.asList( new String[]{"hello", "world"} ) );
+                = new ArrayList<>( Arrays.asList( "hello", "world" ) );
         
         
         @ConfigComment( "This is a field-level single-line comment." )
@@ -58,9 +56,9 @@ public class ConfigManagerTest
         public String instanceIgnoredField = "hello";
 
         public ArrayList<Integer> instanceIntArrayList
-                = new ArrayList<>( Arrays.asList( new Integer[]{2, 4, 6, 8, 10} ) );
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
         public ArrayList<String> instanceStringArrayList
-                = new ArrayList<>( Arrays.asList( new String[]{"hello", "beautiful", "world"} ) );
+                = new ArrayList<>( Arrays.asList( "hello", "beautiful", "world" ) );
     }
 
     private static final Logger LOGGER = LoggerFactory.getLogger( ConfigManagerTest.class );
@@ -80,24 +78,21 @@ public class ConfigManagerTest
     void testStaticConfigurationSerialisation( @TempDir Path tempDir ) throws IOException
     {
         String configFileName = "test_static_configuration_serialisation.properties";
-
         Path configFilePath = tempDir.resolve( configFileName );
-
         ConfigManager configManager = new ConfigManager(
             configFilePath,
             Configurations.class,
             null
         );
 
+
         // ========== Test that the configuration file was created ==========
         assertTrue( configManager.deserialiseConfigFileOrElseCreate() );
         assertTrue( configFilePath.toFile().exists(), "Configuration file not created" );
 
-        String contents = readConfigFile( configFilePath );
-
 
         // ========== Test the contents of the new configuration file ==========
-
+        String contents = readConfigFile( configFilePath );
         // Note: the instance fields (and their comments) will be ignored
         // since we did not provide a configuration class instance
         String expectedOriginalContents = """
@@ -119,8 +114,7 @@ public class ConfigManagerTest
         assertEquals( expectedOriginalContents, contents, "Original config file contents do not match expected" );
         
 
-        // ========== Test static variable modification ========== 
-
+        // ========== Test static variable modification ==========
         Configurations.STATIC_INT = 67;
         Configurations.STATIC_SHORT = 0xFF;
         Configurations.STATIC_FLOAT= 2.718f;
@@ -128,8 +122,7 @@ public class ConfigManagerTest
         Configurations.STATIC_BOOL = !Configurations.STATIC_BOOL;
         Configurations.STATIC_INT_ARRAYLIST = new ArrayList<>( Arrays.asList( 4, 2, 5, 12, 56 ) );
         Configurations.STATIC_STRING_ARRAYLIST = new ArrayList<>( Arrays.asList( "a", "rfge", "aebfu" ) );
-
-        configManager.serialiseConfigsToFile();
+        configManager.serialiseConfigurations();
 
         String expectedNewContents = """
         # This is a top-level
@@ -146,7 +139,6 @@ public class ConfigManagerTest
         STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
         STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
         """.trim();
-
         contents = readConfigFile( configFilePath );
 
         assertEquals( expectedNewContents, contents, "New config file contents do not match expected" );
@@ -172,7 +164,7 @@ public class ConfigManagerTest
 
         String contents = readConfigFile( configFilePath, 13 );
 
-        // The instance fieldsd start at line 14
+        // The instance fields start at line 14
         String expectedOriginalContent = """
         # This is a field-level single-line comment.
         instanceInt=42
@@ -181,7 +173,7 @@ public class ConfigManagerTest
         instanceDouble=1.414214
         instanceBool=true
         instanceIntArrayList=[2, 4, 6, 8, 10]
-        instanceStringArrayList=[hello, beautiful, world]        
+        instanceStringArrayList=[hello, beautiful, world]
         """.trim();
 
         assertEquals( expectedOriginalContent, contents, "Original configuration file contents do not match expected" );
@@ -194,7 +186,7 @@ public class ConfigManagerTest
         configurationsInstance.instanceIntArrayList = new ArrayList<>( Arrays.asList( 6, 35, 35, 725, 7801 ) );
         configurationsInstance.instanceStringArrayList = new ArrayList<>( Arrays.asList( "aeth", "vxcioub", "uhdgx" ) );
 
-        configManager.serialiseConfigsToFile();
+        configManager.serialiseConfigurations();
 
         String expectedNewContents = """
         # This is a field-level single-line comment.
@@ -219,7 +211,7 @@ public class ConfigManagerTest
     }
 
     @Test
-    void testInstanceCOnfigurationDeserialisastion()
+    void testInstanceConfigurationDeserialisation()
     {
         
     }
