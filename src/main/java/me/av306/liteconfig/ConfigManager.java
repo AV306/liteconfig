@@ -1,5 +1,14 @@
 package me.av306.liteconfig;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.UnknownNullability;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import me.av306.liteconfig.annotations.ConfigComment;
+import me.av306.liteconfig.annotations.IgnoreConfig;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -13,48 +22,39 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.UnknownNullability;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import me.av306.liteconfig.annotations.ConfigComment;
-import me.av306.liteconfig.annotations.IgnoreConfig;
-
 /**
- * The main class of LiteConfig!
+ * Provides serialisation and deserialisation to/from a single file, for the
+ * associated class/object.
+ * <br>
+ * Does not support concurrent access to the same configuration file.
  */
 public class ConfigManager
 {
-    /** {java.nio.file.Path} to the configuration file */
+    /** Holds the {java.nio.file.Path} to the configuration file */
     private final Path configFilePath;
 
-    /** The Class object holding the config fields */
+    /** Holds the Class object with the config fields */
     private final Class<?> configurableClass;
 
-    /** The instance of the class holding the config fields, if any */
+    /** Holds the instance of the class holding the config fields, if any. */
     private @Nullable Object configurableClassInstance;
 
     /** The internal logger */
     private final Logger LOGGER;
     
-    /**
-     * True if there were errors when deserialising the config file.
-     */
+    /** Holds the deserialisation error flag */
     private boolean deserialisationErrorFlag = false;
 
     /**
-     * TODO
-     * @return
+     * Get the status of the previous deserialisation.
+     * @return True if there were content errors (malformed entries, illegal accesses, name mismatches) in the configuration file. Does NOT include IO-related errors.
      */
     public boolean hasDeserialisationErrors() { return this.deserialisationErrorFlag; }
     
 
     
     /**
-     * Creates a new configuration manager.
-     *
+     * Creates a new configuration manager for the given class and the given file path.
      * @param configFilePath Path to the config file
      * @param configurableClass {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
@@ -70,8 +70,7 @@ public class ConfigManager
     }
 
     /**
-     * Create a new configuration manager.
-     * TODO: javadocs
+     * Create a new configuration manager for the given class and file path, with the specified logger name.
      * @param name
      * @param configFilePath
      * @param configurableClass
@@ -92,11 +91,11 @@ public class ConfigManager
     }
 
     /**
-     * Check for the existence of a config file, creating a new one if needed.
-     * @return true if a new config file was created, false otherwise
-     * @throws IOException (TODO)
+     * Create a new configuration file if one does not already exist, and then deserialise its contents.
+     * @return True if a new configuration file was created, false otherwise
+     * @throws IOException If one occurred during writing
      */
-    public boolean deserialiseConfigFileOrElseCreate() throws IOException
+    public boolean deserialiseConfigurationFileOrElseCreateNew() throws IOException
     {
         if ( !this.configFilePath.toFile().exists() )
         {
@@ -116,15 +115,20 @@ public class ConfigManager
     }
 
     /**
-     * Read configs from the config file. Sets hasCustomData if invalid config statements were read.
+     * Read configs from the config file.
+     * Sets {deserialisationErrorFlag} if invalid configuration entries statements were read.
+     * <br>
+     * This does not modify the configuration file.
      * <br>
      * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
-     * @throws IOException If one occurred during deserialisaation
+     * @throws IOException If one occurred while reading the configuration file
      * @throws UnsupportedOperationException If an unsupported data type is encountered during deserialisation
+     * @return False if there were no content errors during deserialisation, true otherwise. This returns the same value as calling {hasDeserialisationErrors()} immediately after the deserialisation.
      */
-    public void deserialiseConfigFile() throws IOException, UnsupportedOperationException
+    public boolean deserialiseConfigFile() throws IOException, UnsupportedOperationException
     {
         // TODO: next step: bounds checking with annotations?
+
         // Reset error flag
         this.deserialisationErrorFlag = false;
 
@@ -134,6 +138,7 @@ public class ConfigManager
             reader.lines().parallel().forEach( line ->
             {
                 line = line.trim();
+
                 // Skip comments and blank lines
                 if ( line.startsWith( "#" ) || line.isBlank() ) return;
 
@@ -141,25 +146,31 @@ public class ConfigManager
                 {
                     deserialiseConfigurationLine( line );
                 }
+                // FIXME: should error messages be printed inside the deserialisation method?
+                // "Unsupported type" messages are printed inside, but not the rest.
                 catch ( NoSuchFieldException nsfe )
                 {
-                    // TODO: list of errors?
+                    // TODO: create a list of errors?
                     this.LOGGER.error( "No matching field found for config entry: {}", line );
                     this.deserialisationErrorFlag = true;
                 }
                 catch ( IllegalAccessException illegal )
                 {
-                    this.LOGGER.error( "Could not set field involved in: {}", line );
+                    this.LOGGER.error( "Failed to set field for: {}", line );
                     this.deserialisationErrorFlag = true;
                 }
                 catch ( ArrayIndexOutOfBoundsException oobe )
                 {
-                    this.LOGGER.error( "Malformed config entry: {}", line );
+                    this.LOGGER.error( "Invalid config entry: {}", line );
                     this.deserialisationErrorFlag = true;
                 }
                 catch ( NumberFormatException nfe )
                 {
-                    this.LOGGER.error( "Malformed number in config entry: {}", line );
+                    this.LOGGER.error( "Invalid number in config entry: {}", line );
+                    this.deserialisationErrorFlag = true;
+                }
+                catch ( UnsupportedOperationException uoe )
+                {
                     this.deserialisationErrorFlag = true;
                 }
             } );
@@ -171,9 +182,20 @@ public class ConfigManager
         }
         
         this.LOGGER.info( "Finished reading config file!" );
+        return this.deserialisationErrorFlag;
     }
 
-    private void deserialiseConfigurationLine( @NotNull String line )
+    /**
+     * Deserialise the given "prop=val" configuration entry and set
+     * the associated field in the configuration class.
+     * @param line The configuration entry in "prop=val" format
+     * @throws ArrayIndexOutOfBoundsException If the configuration entry is invalid, i.e. missing one or more of `prop` or `val`.
+     * @throws NoSuchFieldException If the field matching `prop` cannot be found in the configuration class
+     * @throws IllegalAccessException If the field matching `prop` in the configuration class cannot be accessed
+     * @throws NumberFormatException If the field matching `prop` is a number type and `val` is not a valid number
+     * @throws UnsupportedOperationException If the field matching `prop` is of an unsupported type
+     */
+    protected void deserialiseConfigurationLine( @NotNull String line )
             throws ArrayIndexOutOfBoundsException, NoSuchFieldException,
                    IllegalAccessException, NumberFormatException, UnsupportedOperationException
     {
@@ -202,7 +224,7 @@ public class ConfigManager
         }
         else if ( fieldTypeClass.isAssignableFrom( int.class ) )
         {
-            if ( entry[1].startsWith( "0x" ) )
+            if ( value.startsWith( "0x" ) )
             {
                 // Hex literal
                 field.setInt(
@@ -268,7 +290,10 @@ public class ConfigManager
             {
                 this.LOGGER.error( "Unsupported ArrayList type {} for config field {}",
                         arrayTypeParameter.getName(), name );
-                this.deserialisationErrorFlag = true;
+                //this.deserialisationErrorFlag = true;
+                // TODO: should this be a silent failure?
+                throw new UnsupportedOperationException( "Unsupported data type " + fieldTypeClass.getName()
+                    + " for ArrayList field " + field.getName() );
             }
         }
         else
@@ -281,7 +306,7 @@ public class ConfigManager
 
     /**
      * Serialise the values from the configuration class into the config file.
-     * @throws IOException If one occurred while writing
+     * @throws IOException If one occurred while writing to the configuration file
      */
     public void serialiseConfigurations() throws IOException
     {   
@@ -346,11 +371,13 @@ public class ConfigManager
     }
 
     /**
-     * TODO
-     * @param comments
-     * @return
+     * Concatenate the values of the provided comment annotations into a single string,
+     * with the contents of each annotation on a separate line and the appropriate comment prefix ("#") beginning each line.
+     * Blank comments become newlines.
+     * @param comments The comment annotations
+     * @return A String containing the contents of each annotation, concatenated as described previously
      */
-    private static String processComments( ConfigComment... comments )
+    protected static String processComments( ConfigComment... comments )
     {
         StringBuilder commentsString = new StringBuilder();
         for ( var comment : comments )
@@ -366,12 +393,12 @@ public class ConfigManager
     }
 
     /**
-     * Serialise a given {java.lang.reflect.Field}.
-     * @param field The target field
-     * @param instance The instance of the object containing the field
+     * Serialise a given {java.lang.reflect.Field} into a string representation.
+     * @param field The field to serialise
+     * @param instance The object instance containing the field
      * @return A string representation of the field's value
-     * @throws IllegalAccessException If the field cannot be accessed, e.g. it is private
-     * @throws NullPointerException If instance is null and the field is an instance field
+     * @throws IllegalAccessException If the field cannot be accessed, for example if it is a private field
+     * @throws NullPointerException If `instance` is `null` and the field is an instance field
      */
     protected static String serialiseField( @NotNull Field field, @Nullable Object instance )
             throws IllegalAccessException, NullPointerException
@@ -424,10 +451,10 @@ public class ConfigManager
     }
 
     /**
-     * Serialise a given object.
+     * Serialise a given object to a string representation.
      * @param object The object to be serialised
      * @param fieldTypeClass The type of the object
-     * @return A String representation of the object
+     * @return A string representation of the object
      */
     protected static String serialiseObject( Object object, Class<?> fieldTypeClass )
     {
@@ -455,12 +482,11 @@ public class ConfigManager
     }
 
     /**
-     * Print the values of all the configuration fields accessible to this
-     * ConfigManager.
+     * Print the values of all the configuration fields accessible to this ConfigManager to its logger.
      */
     public void printAllConfigs()
     {
-        this.LOGGER.info( "All configs:" );
+        this.LOGGER.info( "All configs accessible to {}:", this.LOGGER.getName() );
         for ( var f : this.configurableClass.getDeclaredFields() )
         {
             // TODO: ignore static/instance fields based on annotation (see above)

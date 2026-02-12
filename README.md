@@ -2,55 +2,23 @@
 
 [![](https://jitpack.io/v/AV306/liteconfig.svg)](https://jitpack.io/#AV306/liteconfig)
 
-<sup>Honestly, you could just copy/paste [ConfigManager.java](https://github.com/AV306/liteconfig/blob/main/src/main/java/me/av306/liteconfig/ConfigManager.java) into your project - it's literally just a single class</sup>
-
-A very small and lightweight Java configuration manager.
+A small and lightweight Java configuration system. It directly bridges the configuration file and the class with the configuration values, no manual type-guessing or string parsing needed!
 
 ## Features
 
-- Smol - only one class (+1 interface, technically)
-- Simple - just do a `new ConfigManager( [...] )` and it handles everything for you
-- No dependencies!
+- Small -- (pending tests)
+- Simple -- instantiate, deserialise, and you're good to go!
+- No extra setup -- configuration files are automatically generated from your configuration class
+- Only one external dependency -- SLF4J (you probably have this already)
 
 ## How to use
 
-1. Create (public, optionally static) fields to hold configurable values in a class of your choice (e.g. `MainClass`)
-```java
-public class MainClass {
-  public int settingA = 4;            // Default value: 4
-  public boolean settingB = false;    // Default value: false
-  ...
-```
-2. (optional) Create a template config file (to be embedded inside the JAR) in your resource folder (`src/main/resources/` for Gradle)
-3. Initialise a new ConfigManager instance in your entrypoint
-```java
-import me.av306.liteconfig.ConfigManager;
-...
-public class MainClass {
-  ...
-  private ConfigManager cm;
-  ...
-  public void entrypoint() {
-    ...
-    cm = new ConfigManager(
-      "Test App", // Name of program, for logging
-      Path.of( "path/to/config/file/directory/" ),
-      "testapp_config.properties", // Name of config file (with extension), should be the same as the one you created in step 2
-      this.getClass(), // or MainClass.class if static fields are used
-      this // or null if static fields are used
-    );
-    ...
-```
-3. The constructor handles the initial creation and reading of the config file
-4. To update configs, call `ConfigManager#readConfigFile()`
-5. To save configs if they were changed during runtime, call `ConfigManager#saveConfigFile()`
+(Check out [the tests](https://github.com/AV306/liteconfig/blob/main/src/test/java/me/av306/liteconfig/tests/ConfigManagerTest.java) for some examples!)
 
-That's it!
+(TODO)
 
 ## Note
 
-You have to provide a default config file for ConfigManager. *Technically*, it could create one by inferring from the fields in the configurable class, but then we would need annotations and stuff and that's way too complex for this project.
-
-If you need those features, try one of the better config libraries out there, like [CompleteConfig](https://github.com/Lortseam/CompleteConfig) (for Minecraft).
+LiteConfig does *not* support multiple `ConfigManager`s using the same configuration file. It won't stop you, but there are no provisions for concurrency safety.
 
 ### License: MIT

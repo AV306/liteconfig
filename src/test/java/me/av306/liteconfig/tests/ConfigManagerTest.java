@@ -1,12 +1,15 @@
 package me.av306.liteconfig.tests;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,7 +64,49 @@ public class ConfigManagerTest
                 = new ArrayList<>( Arrays.asList( "hello", "beautiful", "world" ) );
     }
 
+    // We need another one because the serialisation test mutates the previous one
+    @ConfigComment( "This is a top-level" )
+    @ConfigComment( "multiline comment." )
+    public static class Configurations2
+    {
+        @ConfigComment( "This is a field-level single-line comment." )
+        public static int STATIC_INT = 42;
+
+        @ConfigComment( "This is a field-level" )
+        @ConfigComment( "multi-line comment." )
+        public static short STATIC_SHORT = 4;
+        public static float STATIC_FLOAT = 3.14f;
+        public static double STATIC_DOUBLE = Math.sqrt( 2 );
+        public static boolean STATIC_BOOL = true;
+
+        @IgnoreConfig
+        public static String IGNORED_FIELD = ":O";
+
+        public static ArrayList<Integer> STATIC_INT_ARRAYLIST
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
+        public static ArrayList<String> STATIC_STRING_ARRAYLIST
+                = new ArrayList<>( Arrays.asList( "hello", "world" ) );
+        
+        
+        @ConfigComment( "This is a field-level single-line comment." )
+        public int instanceInt = 42;
+
+        public short instanceShort = 4;
+        public float instanceFloat = 3.14f;
+        public double instanceDouble = Math.sqrt( 2 );
+        public boolean instanceBool = true;
+
+        @IgnoreConfig
+        public String instanceIgnoredField = "hello";
+
+        public ArrayList<Integer> instanceIntArrayList
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
+        public ArrayList<String> instanceStringArrayList
+                = new ArrayList<>( Arrays.asList( "hello", "beautiful", "world" ) );
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger( ConfigManagerTest.class );
+    private final double epsilon = 0.000001;
 
     /**
      * This test does the following:
@@ -87,7 +132,7 @@ public class ConfigManagerTest
 
 
         // ========== Test that the configuration file was created ==========
-        assertTrue( configManager.deserialiseConfigFileOrElseCreate() );
+        assertTrue( configManager.deserialiseConfigurationFileOrElseCreateNew() );
         assertTrue( configFilePath.toFile().exists(), "Configuration file not created" );
 
 
@@ -159,7 +204,7 @@ public class ConfigManagerTest
         );
 
         // Quickly check that we're not reusing any old configuration file
-        boolean newConfigFileCreated = configManager.deserialiseConfigFileOrElseCreate();
+        boolean newConfigFileCreated = configManager.deserialiseConfigurationFileOrElseCreateNew();
         assertTrue( newConfigFileCreated, "A new configuration file was not created" );
 
         String contents = readConfigFile( configFilePath, 13 );
@@ -205,15 +250,130 @@ public class ConfigManagerTest
     }
 
     @Test
-    void testStaticConfigurationDeserialisation()
+    void testStaticConfigurationDeserialisation( @TempDir Path tempDir ) throws IOException
     {
+        String configFileName = "test_static_configuration_deserialisation.properties";
+        Path configFilePath = tempDir.resolve( configFileName );
 
+        ConfigManager configManager = new ConfigManager(
+            configFilePath,
+            Configurations2.class,
+            null
+        );
+
+        // Sanity-check the initial contents
+        assertEquals( 42, Configurations2.STATIC_INT );
+        assertEquals( 4, Configurations2.STATIC_SHORT );
+        assertEquals( 3.14f, Configurations2.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 2 ), Configurations2.STATIC_DOUBLE );
+        assertEquals( true, Configurations2.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations2.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations2.STATIC_STRING_ARRAYLIST );
+        
+        // We won't check serialisation; the two previous tests cover that
+
+        String newContents = """
+        # This is a top-level
+        # multiline comment.
+
+        # This is a field-level single-line comment.
+        STATIC_INT=67
+        # This is a field-level
+        # multi-line comment.
+        STATIC_SHORT=0xFF
+        STATIC_FLOAT=2.718000
+        STATIC_DOUBLE=2.236068
+        STATIC_BOOL=false
+        STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
+        STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
+        """.trim();
+
+        writeConfigFile( configFilePath, newContents );
+
+        // Sanity check the file contents
+        assertEquals( readConfigFile( configFilePath ), newContents );
+
+        assertFalse( configManager.deserialiseConfigurationFileOrElseCreateNew(), "A new configuration file was created despite one already existing" );
+
+        // Sanity check the file contents, again
+        // TODO: can we check the modified date?
+        assertEquals( readConfigFile( configFilePath ), newContents,
+                "Configuration file was modified after deserialise" );
+
+        // Check the new configuration values
+        assertEquals( 67, Configurations2.STATIC_INT );
+        assertEquals( 0xFF, Configurations2.STATIC_SHORT );
+        assertEquals( 2.718f, Configurations2.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 5 ), Configurations2.STATIC_DOUBLE, epsilon );
+        assertEquals( false, Configurations2.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 4, 2, 5, 12, 56 ) ),
+                Configurations2.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "a", "rfge", "aebfu" ) ),
+                Configurations2.STATIC_STRING_ARRAYLIST );   
     }
 
     @Test
-    void testInstanceConfigurationDeserialisation()
+    void testInstanceConfigurationDeserialisation( @TempDir Path tempDir ) throws IOException
+
     {
+        String configFileName = "test_instance_configuration_deserialisation.properties";
+        Path configFilePath = tempDir.resolve( configFileName );
+        Configurations2 instance = new Configurations2();
+
+        ConfigManager configManager = new ConfigManager(
+            configFilePath,
+            Configurations2.class,
+            instance
+        );
+
+        // Sanity-check the initial contents
+        assertEquals( 42, instance.instanceInt );
+        assertEquals( 4, instance.instanceShort );
+        assertEquals( 3.14f, instance.instanceFloat );
+        assertEquals( Math.sqrt( 2 ), instance.instanceDouble );
+        assertEquals( true, instance.instanceBool );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                instance.instanceIntArrayList );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "beautiful", "world" ) ),
+                instance.instanceStringArrayList );
         
+        // We won't check serialisation; the two previous tests cover that
+
+        String newContents = """
+        # This is a field-level single-line comment.
+        instanceInt=214
+        instanceShort=0x20
+        instanceFloat=2.718000
+        instanceDouble=1.732051
+        instanceBool=false
+        instanceIntArrayList=[6, 35, 335, 725, 7801]
+        instanceStringArrayList=[aeth, vxcioub, uhdgx]
+        """.trim();
+
+        writeConfigFile( configFilePath, newContents );
+
+        // Sanity check the file contents
+        assertEquals( readConfigFile( configFilePath ), newContents );
+
+        assertFalse( configManager.deserialiseConfigurationFileOrElseCreateNew(), "A new configuration file was created despite one already existing" );
+
+        // Sanity check the file contents, again
+        // TODO: can we check the modified date?
+        assertEquals( readConfigFile( configFilePath ), newContents,
+                "Configuration file was modified after deserialise" );
+
+        // Check the new configuration values
+        assertEquals( 214, instance.instanceInt );
+        assertEquals( 0x20, instance.instanceShort );
+        assertEquals( 2.718f, instance.instanceFloat );
+        assertEquals( Math.sqrt( 3 ), instance.instanceDouble, epsilon );
+        assertEquals( false, instance.instanceBool );
+        assertEquals( new ArrayList<>( Arrays.asList( 6, 35, 335, 725, 7801 ) ),
+                instance.instanceIntArrayList );
+        assertEquals( new ArrayList<>( Arrays.asList( "aeth", "vxcioub", "uhdgx" ) ),
+                instance.instanceStringArrayList );
     }
 
     @Test
@@ -245,6 +405,18 @@ public class ConfigManagerTest
         catch ( IOException e )
         {
             throw e;
+        }
+    }
+
+    void writeConfigFile( Path path, String contents ) throws IOException
+    {
+        try ( BufferedWriter writer = Files.newBufferedWriter( path, StandardOpenOption.CREATE ) )
+        {
+            writer.write( contents );
+        }
+        catch ( IOException ioe )
+        {
+            throw ioe;
         }
     }
 }
