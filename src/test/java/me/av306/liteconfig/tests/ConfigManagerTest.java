@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import me.av306.liteconfig.ConfigManager;
 import me.av306.liteconfig.annotations.ConfigComment;
 import me.av306.liteconfig.annotations.IgnoreConfig;
+import me.av306.liteconfig.exceptions.InvalidConfigurationEntryException;
 
 public class ConfigManagerTest
 {
@@ -98,6 +99,34 @@ public class ConfigManagerTest
 
         @IgnoreConfig
         public String instanceIgnoredField = "hello";
+
+        public ArrayList<Integer> instanceIntArrayList
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
+        public ArrayList<String> instanceStringArrayList
+                = new ArrayList<>( Arrays.asList( "hello", "beautiful", "world" ) );
+    }
+
+    // Another one for the malformed entry tests...
+    public static class Configurations3
+    {
+        public static int STATIC_INT = 42;
+
+        public static short STATIC_SHORT = 4;
+        public static float STATIC_FLOAT = 3.14f;
+        public static double STATIC_DOUBLE = Math.sqrt( 2 );
+        public static boolean STATIC_BOOL = true;
+
+        public static ArrayList<Integer> STATIC_INT_ARRAYLIST
+                = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
+        public static ArrayList<String> STATIC_STRING_ARRAYLIST
+                = new ArrayList<>( Arrays.asList( "hello", "world" ) );
+        
+        public int instanceInt = 42;
+
+        public short instanceShort = 4;
+        public float instanceFloat = 3.14f;
+        public double instanceDouble = Math.sqrt( 2 );
+        public boolean instanceBool = true;
 
         public ArrayList<Integer> instanceIntArrayList
                 = new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) );
@@ -311,12 +340,11 @@ public class ConfigManagerTest
         assertEquals( new ArrayList<>( Arrays.asList( 4, 2, 5, 12, 56 ) ),
                 Configurations2.STATIC_INT_ARRAYLIST );
         assertEquals( new ArrayList<>( Arrays.asList( "a", "rfge", "aebfu" ) ),
-                Configurations2.STATIC_STRING_ARRAYLIST );   
+                Configurations2.STATIC_STRING_ARRAYLIST );
     }
 
     @Test
     void testInstanceConfigurationDeserialisation( @TempDir Path tempDir ) throws IOException
-
     {
         String configFileName = "test_instance_configuration_deserialisation.properties";
         Path configFilePath = tempDir.resolve( configFileName );
@@ -377,9 +405,124 @@ public class ConfigManagerTest
     }
 
     @Test
+    void testStaticConfigurationDeserialisationMalformedNumber( @TempDir Path tempDir ) throws IOException
+    {
+        String configFileName = "test_static_configuration_deserialisation_malformed_number.properties";
+        Path configFilePath = tempDir.resolve( configFileName );
+
+        ConfigManager configManager = new ConfigManager(
+            configFilePath,
+            Configurations3.class,
+            null
+        );
+
+        // Sanity-check the initial contents
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT );
+        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );
+        
+        // We won't check serialisation; the two previous tests cover that
+
+        String newContents = """
+        # This is a top-level
+        # multiline comment.
+
+        # This is a field-level single-line comment.
+        STATIC_INT=42
+        # This is a field-level
+        # multi-line comment.
+        STATIC_SHORT=notanumber
+        STATIC_FLOAT=2.718000
+        STATIC_DOUBLE=2.236068
+        STATIC_BOOL=false
+        STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
+        STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
+        """.trim();
+
+        writeConfigFile( configFilePath, newContents );
+
+        // Sanity check the file contents
+        assertEquals( readConfigFile( configFilePath ), newContents );
+
+        assertThrows( NumberFormatException.class, configManager::deserialiseConfigurationFile );
+
+        // Check the new configuration values weren't modified
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT );
+        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );        
+    }
+
+    // TODO: we need to find a better way to isolate the static fields without having one class for each deserialisation test.
+    // TODO: also tests need to be updated when we make configmanager rollback changes
+    @Test
+    void testStaticConfigurationDeserialisationMalformedLine( @TempDir Path tempDir ) throws IOException
+    {
+        String configFileName = "test_static_configuration_deserialisation_malformed.properties";
+        Path configFilePath = tempDir.resolve( configFileName );
+
+        ConfigManager configManager = new ConfigManager(
+            configFilePath,
+            Configurations3.class,
+            null
+        );
+
+        // Sanity-check the initial contents
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT );
+        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );
+        
+        String newContents = """
+        STATIC_INT=42
+        # This is a field-level
+        # multi-line comment.
+        STATIC_SHORT=
+        STATIC_FLOAT=2.718000
+        STATIC_DOUBLE=2.236068
+        STATIC_BOOL=false
+        STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
+        STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
+        """.trim();
+
+        writeConfigFile( configFilePath, newContents );
+
+        // Sanity check the file contents
+        assertEquals( readConfigFile( configFilePath ), newContents );
+
+        assertThrows( InvalidConfigurationEntryException.class, configManager::deserialiseConfigurationFile );
+
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT );
+        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );
+    }
+
+    @Test
     void testPrintAllConfigs()
     {
-
+        // TODO
     }
 
 

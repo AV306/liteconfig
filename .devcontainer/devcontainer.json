@@ -13,7 +13,7 @@
         },
         "vscode": {
             "extensions": [
-                "vscjava.vscode-java-pack"
+                "redhat.java"
             ]
         }
     }

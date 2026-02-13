@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import me.av306.liteconfig.annotations.ConfigComment;
 import me.av306.liteconfig.annotations.IgnoreConfig;
+import me.av306.liteconfig.exceptions.InvalidConfigurationEntryException;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -41,16 +42,6 @@ public class ConfigManager
 
     /** The internal logger */
     private final Logger LOGGER;
-    
-    /** Holds the deserialisation error flag */
-    private boolean deserialisationErrorFlag = false;
-
-    /**
-     * Get the status of the previous deserialisation.
-     * @return True if there were content errors (malformed entries, illegal accesses, name mismatches) in the configuration file. Does NOT include IO-related errors.
-     */
-    public boolean hasDeserialisationErrors() { return this.deserialisationErrorFlag; }
-    
 
     
     /**
@@ -92,10 +83,13 @@ public class ConfigManager
 
     /**
      * Create a new configuration file if one does not already exist, and then deserialise its contents.
+     * @throws InvalidConfigurationEntryException See {deserialiseConfigurationFile()}
+     * @throws NumberFormatException See {deserialiseConfigurationFIle()}
+     * @throws IOException If one occurred while reading or writing the configuration file
      * @return True if a new configuration file was created, false otherwise
-     * @throws IOException If one occurred during writing
      */
-    public boolean deserialiseConfigurationFileOrElseCreateNew() throws IOException
+    public boolean deserialiseConfigurationFileOrElseCreateNew()
+            throws InvalidConfigurationEntryException, NumberFormatException, IOException
     {
         if ( !this.configFilePath.toFile().exists() )
         {
@@ -109,33 +103,40 @@ public class ConfigManager
         {
             this.LOGGER.info( "Config file already exists; will read configs from {}",
                     this.configFilePath.toString() );
-            this.deserialiseConfigFile();
+            this.deserialiseConfigurationFile();
             return false;
         }
     }
 
     /**
-     * Read configs from the config file.
-     * Sets {deserialisationErrorFlag} if invalid configuration entries statements were read.
+     * Read configs from the config file, updating the configuration class. Will throw an exception if malformed input is encountered,
+     * so the user can be notified. NOTE: Changes made to the configuration class before an exception is thrown will not be rolled back.
+     * Partial application of configurations may result.
      * <br>
      * This does not modify the configuration file.
      * <br>
      * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
+     * @throws InvalidConfigurationEntryException If an invalid configuration entry is encountered
+     * @throws NumberFormatException If a configuration entry contains an invalid number
      * @throws IOException If one occurred while reading the configuration file
-     * @throws UnsupportedOperationException If an unsupported data type is encountered during deserialisation
-     * @return False if there were no content errors during deserialisation, true otherwise. This returns the same value as calling {hasDeserialisationErrors()} immediately after the deserialisation.
+     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {java.lang.NoSuchFIeldException}
+     * or {java.lang.IllegalAccessException} are thrown by the underlying {deserialiseConfigurationLine()‘ method
+     * for programmer error arising from improper declarations in the configuration class.
+     * They are wrapped in RuntimeException to make them unchecked.
+     * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
      */
-    public boolean deserialiseConfigFile() throws IOException, UnsupportedOperationException
+    // TODO: any way to make it collect all exceptions first then throw them all, like a compiler?
+    // FIXME: partial application of configs
+    public void deserialiseConfigurationFile()
+            throws InvalidConfigurationEntryException, NumberFormatException, IOException
     {
         // TODO: next step: bounds checking with annotations?
-
-        // Reset error flag
-        this.deserialisationErrorFlag = false;
 
         try ( BufferedReader reader = Files.newBufferedReader( this.configFilePath ) )
         {
             // Iterate over each line in the file
-            reader.lines().parallel().forEach( line ->
+            // TODO: benchmark .parallel()
+            reader.lines().forEach( line ->
             {
                 line = line.trim();
 
@@ -147,31 +148,36 @@ public class ConfigManager
                     deserialiseConfigurationLine( line );
                 }
                 // FIXME: should error messages be printed inside the deserialisation method?
-                // "Unsupported type" messages are printed inside, but not the rest.
-                catch ( NoSuchFieldException nsfe )
+                catch ( InvalidConfigurationEntryException icee )
                 {
-                    // TODO: create a list of errors?
-                    this.LOGGER.error( "No matching field found for config entry: {}", line );
-                    this.deserialisationErrorFlag = true;
-                }
-                catch ( IllegalAccessException illegal )
-                {
-                    this.LOGGER.error( "Failed to set field for: {}", line );
-                    this.deserialisationErrorFlag = true;
-                }
-                catch ( ArrayIndexOutOfBoundsException oobe )
-                {
-                    this.LOGGER.error( "Invalid config entry: {}", line );
-                    this.deserialisationErrorFlag = true;
+                    // This exception is reasonably handled by callers,
+                    // e.g. giving the user an error message. Therefore it is checked.
+                    this.LOGGER.error( "Invalid configuration entry: {}", line );
+                    throw icee;
                 }
                 catch ( NumberFormatException nfe )
                 {
                     this.LOGGER.error( "Invalid number in config entry: {}", line );
-                    this.deserialisationErrorFlag = true;
+                    throw nfe;
+                }
+                catch ( NoSuchFieldException nsfe )
+                {
+                    // The (checked) NoSuchFieldException cannot be reasonably handled by callers,
+                    // since it arises from a programming error in the confoguratioun class.
+                    // Therefore we wrap it in IllegalStateException so that it becomes unchecked.
+                    this.LOGGER.error( "No matching field found for config entry: {}", line );
+                    throw new RuntimeException( nsfe );
+                }
+                catch ( IllegalAccessException iae )
+                {
+                    this.LOGGER.error( "Failed to set field for: {}", line );
+                    throw new RuntimeException( iae );
                 }
                 catch ( UnsupportedOperationException uoe )
                 {
-                    this.deserialisationErrorFlag = true;
+                    // The message is constructed in the underlying method, which has the field and type name
+                    this.LOGGER.error( uoe.getLocalizedMessage() );
+                    throw uoe;
                 }
             } );
         }
@@ -182,28 +188,37 @@ public class ConfigManager
         }
         
         this.LOGGER.info( "Finished reading config file!" );
-        return this.deserialisationErrorFlag;
     }
 
     /**
      * Deserialise the given "prop=val" configuration entry and set
      * the associated field in the configuration class.
      * @param line The configuration entry in "prop=val" format
-     * @throws ArrayIndexOutOfBoundsException If the configuration entry is invalid, i.e. missing one or more of `prop` or `val`.
-     * @throws NoSuchFieldException If the field matching `prop` cannot be found in the configuration class
-     * @throws IllegalAccessException If the field matching `prop` in the configuration class cannot be accessed
+     * @throws InvalidConfigurationEntryException If the configuration entry is invalid, i.e. missing one or more of `prop` or `val`.
      * @throws NumberFormatException If the field matching `prop` is a number type and `val` is not a valid number
-     * @throws UnsupportedOperationException If the field matching `prop` is of an unsupported type
+     * @throws NoSuchFieldException If the field matching `prop` cannot be found in the configuration class (this should be handled in the caller)
+     * @throws IllegalAccessException If the field matching `prop` in the configuration class cannot be accessed
+     * @throws UnsupportedOperationException (Unchecked) If the field matching `prop` is of an unsupported type
      */
     protected void deserialiseConfigurationLine( @NotNull String line )
-            throws ArrayIndexOutOfBoundsException, NoSuchFieldException,
-                   IllegalAccessException, NumberFormatException, UnsupportedOperationException
+            throws InvalidConfigurationEntryException, NumberFormatException,
+            NoSuchFieldException, IllegalAccessException
     {
         String[] entry = line.split( "=" );
 
         // Trim lines so you can have spaces around the equals ("prop = val" as opposed to "prop=val")
-        String name = entry[0].trim();
-        String value = entry[1].trim();
+        String name, value;
+        try
+        {
+            name = entry[0].trim();
+            value = entry[1].trim();
+        }
+        catch ( ArrayIndexOutOfBoundsException oobe )
+        {
+            // Rethrow as InvalidCnfigurationEntryException
+            throw new InvalidConfigurationEntryException( "Invalid configuration entry \""
+                    + line + "\": ", oobe );
+        }
 
         // Set fields in configurable class
         Field field = this.configurableClass.getDeclaredField( name );
@@ -270,14 +285,14 @@ public class ConfigManager
                 for ( String e : arrayValues ) list.add( Integer.parseInt( e ) );
                 field.set( this.configurableClassInstance, list );
             }
-            if ( arrayTypeParameter.isAssignableFrom( String.class ) )
+            else if ( arrayTypeParameter.isAssignableFrom( String.class ) )
             {
 
                 ArrayList<String> list = new ArrayList<>( Arrays.asList( arrayValues ) );
 
                 field.set( this.configurableClassInstance, list );
             }
-            if ( arrayTypeParameter.isAssignableFrom( Float.class ) )
+            else if ( arrayTypeParameter.isAssignableFrom( Float.class ) )
             {
                 ArrayList<Float> list = new ArrayList<>();
 
@@ -288,17 +303,12 @@ public class ConfigManager
             // TODO: more types...
             else
             {
-                this.LOGGER.error( "Unsupported ArrayList type {} for config field {}",
-                        arrayTypeParameter.getName(), name );
-                //this.deserialisationErrorFlag = true;
-                // TODO: should this be a silent failure?
-                throw new UnsupportedOperationException( "Unsupported data type " + fieldTypeClass.getName()
+                throw new UnsupportedOperationException( "Unsupported data type " + arrayTypeParameter.getName()
                     + " for ArrayList field " + field.getName() );
             }
         }
         else
         {
-            this.LOGGER.error( "Unsupported data type {} for config entry: {}", fieldTypeClass.getName(), line );
             throw new UnsupportedOperationException( "Unsupported data type " + fieldTypeClass.getName()
                     + " for field " + field.getName() );
         }
@@ -306,6 +316,8 @@ public class ConfigManager
 
     /**
      * Serialise the values from the configuration class into the config file.
+     * @throws RuntimeException (unchecked, wrapped {IllegalAccessException}) If a configuration field cannot be accessed
+     * @throws NullPointerException (unchecked) If an instance field is encountered but the configuration object instance is {null}
      * @throws IOException If one occurred while writing to the configuration file
      */
     public void serialiseConfigurations() throws IOException
@@ -353,13 +365,14 @@ public class ConfigManager
                 {
                     // This is thrown if the field is private
                     this.LOGGER.error( "Could not access field {} while creating config file", field.getName() );
-                    //illegal.printStackTrace();
+                    throw new RuntimeException( illegal );
                 }
                 catch ( NullPointerException npe )
                 {
                     // This is thrown if the field is an instance field but we haven't been
                     // given an instance.
-                    this.LOGGER.warn( "Failed to access instance field {}: no instance was provided.", field.getName() );
+                    this.LOGGER.warn( "Failed to access instance field {} as ano instance was provided.", field.getName() );
+                    throw npe;
                 }
             }
         }
@@ -397,8 +410,8 @@ public class ConfigManager
      * @param field The field to serialise
      * @param instance The object instance containing the field
      * @return A string representation of the field's value
-     * @throws IllegalAccessException If the field cannot be accessed, for example if it is a private field
-     * @throws NullPointerException If `instance` is `null` and the field is an instance field
+     * @throws IllegalAccessException If the field cannot be accessed
+     * @throws NullPointerException} If the field is an instance field and the provided instance was {null}.
      */
     protected static String serialiseField( @NotNull Field field, @Nullable Object instance )
             throws IllegalAccessException, NullPointerException
@@ -414,7 +427,8 @@ public class ConfigManager
             Class<?> arrayTypeParameter = (Class<?>) actualTypeArguments[0];
 
             // Treat everything as Objects
-            ArrayList<?> array = (ArrayList<?>) field.get( instance );
+            ArrayList<?> array;
+            array = (ArrayList<?>) field.get( instance );
 
             StringBuilder arrayString = new StringBuilder( "[" );
             for ( int i = 0; i < array.size(); i++ )
