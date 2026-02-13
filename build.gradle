@@ -45,6 +45,19 @@ java {
 	withJavadocJar()
 }
 
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// tasks.withType(JavaCompile).configureEach {
+compileJava {
+    // This is mainly intended for my Minecraft mods,
+    // which are for the versions using Java 17+
+    // If hou need it for lower versions, there are some "var" declarations
+    // and other newer things that you'll need to change.
+    options.release = 17
+}
+
 
 publishing {
     publications {
@@ -59,6 +72,3 @@ publishing {
 
 }
 
-tasks.named('test') {
-    useJUnitPlatform()
-}
