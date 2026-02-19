@@ -1,14 +1,14 @@
 package me.av306.liteconfig;
 
+import me.av306.liteconfig.annotations.ConfigComment;
+import me.av306.liteconfig.annotations.IgnoreConfig;
+import me.av306.liteconfig.exceptions.InvalidConfigurationEntryException;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.UnknownNullability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import me.av306.liteconfig.annotations.ConfigComment;
-import me.av306.liteconfig.annotations.IgnoreConfig;
-import me.av306.liteconfig.exceptions.InvalidConfigurationEntryException;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -109,7 +109,7 @@ public class ConfigManager
     }
 
     /**
-     * Read configs from the config file, updating the configuration class. Will throw an exception if malformed input is encountered,
+     * Read configs from the config file, updating the configuration class. Will stop and throw an exception if malformed input is encountered,
      * so the user can be notified. NOTE: Changes made to the configuration class before an exception is thrown will not be rolled back.
      * Partial application of configurations may result.
      * <br>
@@ -124,9 +124,12 @@ public class ConfigManager
      * for programmer error arising from improper declarations in the configuration class.
      * They are wrapped in RuntimeException to make them unchecked.
      * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
+     * @deprecated Because you probably don't want to use this. See {deserialiseConfigurationFileCompletely()} instead --
+     * it deserialises the whole file and doesn't just stop when it hits an error
      */
     // TODO: any way to make it collect all exceptions first then throw them all, like a compiler?
     // FIXME: partial application of configs
+    @Deprecated( forRemoval = true )
     public void deserialiseConfigurationFile()
             throws InvalidConfigurationEntryException, NumberFormatException, IOException
     {
@@ -159,6 +162,82 @@ public class ConfigManager
                 {
                     this.LOGGER.error( "Invalid number in config entry: {}", line );
                     throw nfe;
+                }
+                catch ( NoSuchFieldException nsfe )
+                {
+                    // The (checked) NoSuchFieldException cannot be reasonably handled by callers,
+                    // since it arises from a programming error in the confoguratioun class.
+                    // Therefore we wrap it in IllegalStateException so that it becomes unchecked.
+                    this.LOGGER.error( "No matching field found for config entry: {}", line );
+                    throw new RuntimeException( nsfe );
+                }
+                catch ( IllegalAccessException iae )
+                {
+                    this.LOGGER.error( "Failed to set field for: {}", line );
+                    throw new RuntimeException( iae );
+                }
+                catch ( UnsupportedOperationException uoe )
+                {
+                    // The message is constructed in the underlying method, which has the field and type name
+                    this.LOGGER.error( uoe.getLocalizedMessage() );
+                    throw uoe;
+                }
+            } );
+        }
+        catch ( IOException ioe )
+        {
+            this.LOGGER.error( "IOException while reading config file: {}", ioe.getMessage() );
+            throw ioe;
+        }
+        
+        this.LOGGER.info( "Finished reading config file!" );
+    }
+
+    /**
+     * Read configs from the config file, updating the configuration class.
+     * Will NOT throw exceptions if malformed input is encountered.
+     * All configuration entries will be processed; only valid entries will have
+     * their corresponding fields updated.
+     * <br>
+     * This does not modify the configuration file.
+     * <br>
+     * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
+     * @throws IOException If one occurred while reading the configuration file
+     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {java.lang.NoSuchFIeldException}
+     * or {java.lang.IllegalAccessException} are thrown by the underlying {deserialiseConfigurationLine()‘ method
+     * for programmer error arising from improper declarations in the configuration class.
+     * They are wrapped in RuntimeException to make them unchecked.
+     * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
+     */
+    public void deserialiseConfigurationFileCompletely() throws IOException
+    {
+        // TODO: next step: bounds checking with annotations?
+
+        try ( BufferedReader reader = Files.newBufferedReader( this.configFilePath ) )
+        {
+            // Iterate over each line in the file
+            // TODO: benchmark .parallel()
+            reader.lines().forEach( line ->
+            {
+                line = line.trim();
+
+                // Skip comments and blank lines
+                if ( line.startsWith( "#" ) || line.isBlank() ) return;
+
+                try
+                {
+                    deserialiseConfigurationLine( line );
+                }
+                // FIXME: should error messages be printed inside the deserialisation method?
+                catch ( InvalidConfigurationEntryException icee )
+                {
+                    // This exception is reasonably handled by callers,
+                    // e.g. giving the user an error message. Therefore it is checked.
+                    this.LOGGER.error( "Invalid configuration entry: {}", line );
+                }
+                catch ( NumberFormatException nfe )
+                {
+                    this.LOGGER.error( "Invalid number in config entry: {}", line );
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
@@ -315,13 +394,14 @@ public class ConfigManager
     }
 
     /**
-     * Serialise the values from the configuration class into the config file.
+     * Serialise all values (as possible) from the configuration class into the config file.
+     * Does NOT stop when an error is encountered.
      * @throws RuntimeException (unchecked, wrapped {IllegalAccessException}) If a configuration field cannot be accessed
      * @throws NullPointerException (unchecked) If an instance field is encountered but the configuration object instance is {null}
      * @throws IOException If one occurred while writing to the configuration file
      */
-    public void serialiseConfigurations() throws IOException
-    {   
+    public void serialiseConfigurationsCompletely() throws IOException
+    {
         try ( BufferedWriter writer = Files.newBufferedWriter( this.configFilePath, StandardOpenOption.CREATE ) )
         {
             // Write the top-level comments, if any

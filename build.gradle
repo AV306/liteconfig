@@ -25,14 +25,7 @@ dependencies {
     testRuntimeOnly "org.slf4j:slf4j-jdk14:2.0.17"
 
     compileOnly "org.jetbrains:annotations:26.0.2"
-
     implementation "org.slf4j:slf4j-api:2.0.17"
-
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    //api libs.commons.math3
-
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    //implementation libs.guava
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
