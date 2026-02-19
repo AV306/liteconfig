@@ -94,7 +94,7 @@ public class ConfigManager
         if ( !this.configFilePath.toFile().exists() )
         {
             this.LOGGER.info( "Configuration file does not exist, will create a new one at {}", this.configFilePath.toString() );
-            this.serialiseConfigurations();
+            this.serialiseConfigurationsCompletely();
 
             this.LOGGER.info( "Created new configuration file at {}", this.configFilePath.toString() );
             return true;

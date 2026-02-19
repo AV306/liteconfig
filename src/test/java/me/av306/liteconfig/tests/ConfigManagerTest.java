@@ -196,7 +196,7 @@ public class ConfigManagerTest
         Configurations.STATIC_BOOL = !Configurations.STATIC_BOOL;
         Configurations.STATIC_INT_ARRAYLIST = new ArrayList<>( Arrays.asList( 4, 2, 5, 12, 56 ) );
         Configurations.STATIC_STRING_ARRAYLIST = new ArrayList<>( Arrays.asList( "a", "rfge", "aebfu" ) );
-        configManager.serialiseConfigurations();
+        configManager.serialiseConfigurationsCompletely();
 
         String expectedNewContents = """
         # This is a top-level
@@ -260,7 +260,7 @@ public class ConfigManagerTest
         configurationsInstance.instanceIntArrayList = new ArrayList<>( Arrays.asList( 6, 35, 35, 725, 7801 ) );
         configurationsInstance.instanceStringArrayList = new ArrayList<>( Arrays.asList( "aeth", "vxcioub", "uhdgx" ) );
 
-        configManager.serialiseConfigurations();
+        configManager.serialiseConfigurationsCompletely();
 
         String expectedNewContents = """
         # This is a field-level single-line comment.
