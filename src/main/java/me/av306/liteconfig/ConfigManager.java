@@ -102,8 +102,8 @@ public class ConfigManager
         else
         {
             this.LOGGER.info( "Config file already exists; will read configs from {}",
-                    this.configFilePath.toString() );
-            this.deserialiseConfigurationFile();
+                    this.configFilePath );
+            this.deserialiseConfigurationFileCompletely();
             return false;
         }
     }
