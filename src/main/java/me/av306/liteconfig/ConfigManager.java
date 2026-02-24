@@ -22,6 +22,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 /**
  * Provides serialisation and deserialisation to/from a single file, for the
@@ -31,7 +34,7 @@ import java.util.Arrays;
  */
 public class ConfigManager
 {
-    /** Holds the {java.nio.file.Path} to the configuration file */
+    /** Holds the {@link java.nio.file.Path} to the configuration file */
     private final Path configFilePath;
 
     /** Holds the Class object with the config fields */
@@ -47,7 +50,7 @@ public class ConfigManager
     /**
      * Creates a new configuration manager for the given class and the given file path.
      * @param configFilePath Path to the config file
-     * @param configurableClass {java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
+     * @param configurableClass {@link java.lang.Class} object that holds the configurable fields (use NameOfClass.class or classInstance.getClass())
      * @param configurableClassInstance Instance of the previous configurable object, if instance fields are used. Pass NULL here if static fields are used
      */
     public ConfigManager(
@@ -56,7 +59,7 @@ public class ConfigManager
             @Nullable Object configurableClassInstance
     )
     {
-        this( "LiteConfig(" + configFilePath.getFileName().toString() + ")",
+        this( "LiteConfig:" + configFilePath.getFileName().toString(),
                 configFilePath, configurableClass, configurableClassInstance );
     }
 
@@ -83,8 +86,8 @@ public class ConfigManager
 
     /**
      * Create a new configuration file if one does not already exist, and then deserialise its contents.
-     * @throws InvalidConfigurationEntryException See {deserialiseConfigurationFile()}
-     * @throws NumberFormatException See {deserialiseConfigurationFIle()}
+     * @throws InvalidConfigurationEntryException See {@link #deserialiseConfigurationFile()}
+     * @throws NumberFormatException See {@link #deserialiseConfigurationFile()}
      * @throws IOException If one occurred while reading or writing the configuration file
      * @return True if a new configuration file was created, false otherwise
      */
@@ -109,7 +112,8 @@ public class ConfigManager
     }
 
     /**
-     * Read configs from the config file, updating the configuration class. Will stop and throw an exception if malformed input is encountered,
+     * Read configs from the config file, updating the configuration class.
+     * Will stop and throw an exception on the first malformed line it encounters,
      * so the user can be notified. NOTE: Changes made to the configuration class before an exception is thrown will not be rolled back.
      * Partial application of configurations may result.
      * <br>
@@ -119,17 +123,17 @@ public class ConfigManager
      * @throws InvalidConfigurationEntryException If an invalid configuration entry is encountered
      * @throws NumberFormatException If a configuration entry contains an invalid number
      * @throws IOException If one occurred while reading the configuration file
-     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {java.lang.NoSuchFIeldException}
-     * or {java.lang.IllegalAccessException} are thrown by the underlying {deserialiseConfigurationLine()‘ method
+     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {@link java.lang.NoSuchFieldException}
+     * or {@link java.lang.IllegalAccessException} are thrown by the underlying {@link #deserialiseConfigurationLine(String)} method
      * for programmer error arising from improper declarations in the configuration class.
      * They are wrapped in RuntimeException to make them unchecked.
      * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
-     * @deprecated Because you probably don't want to use this. See {deserialiseConfigurationFileCompletely()} instead --
-     * it deserialises the whole file and doesn't just stop when it hits an error
      */
     // TODO: any way to make it collect all exceptions first then throw them all, like a compiler?
     // FIXME: partial application of configs
-    @Deprecated( forRemoval = true )
+    // I changed my mind about deprecation. It's probably useful as a stopgap to
+    // inform the user of errors along the way, at least until I write
+    // a better ConfigManager class.
     public void deserialiseConfigurationFile()
             throws InvalidConfigurationEntryException, NumberFormatException, IOException
     {
@@ -203,26 +207,32 @@ public class ConfigManager
      * <br>
      * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
      * @throws IOException If one occurred while reading the configuration file
-     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {java.lang.NoSuchFIeldException}
-     * or {java.lang.IllegalAccessException} are thrown by the underlying {deserialiseConfigurationLine()‘ method
+     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {@link java.lang.NoSuchFieldException}
+     * or {@link java.lang.IllegalAccessException} are thrown by the underlying {@link #deserialiseConfigurationLine(String)} method
      * for programmer error arising from improper declarations in the configuration class.
      * They are wrapped in RuntimeException to make them unchecked.
      * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
+     * @return The number of errors encountered in the configuration file. (This was the best idea I had for a compromise
+     * between having full error collection for each line, and silent failure.)
      */
-    public void deserialiseConfigurationFileCompletely() throws IOException
+    public long deserialiseConfigurationFileCompletely() throws IOException
     {
         // TODO: next step: bounds checking with annotations?
 
+        //ArrayList<Exception> exceptions = new ArrayList<>();
+
+        long numErrors = 0;
         try ( BufferedReader reader = Files.newBufferedReader( this.configFilePath ) )
         {
             // Iterate over each line in the file
             // TODO: benchmark .parallel()
-            reader.lines().forEach( line ->
+
+            numErrors = reader.lines().map( line ->
             {
                 line = line.trim();
 
                 // Skip comments and blank lines
-                if ( line.startsWith( "#" ) || line.isBlank() ) return;
+                if ( line.startsWith( "#" ) || line.isBlank() ) return null;
 
                 try
                 {
@@ -233,23 +243,27 @@ public class ConfigManager
                 {
                     // This exception is reasonably handled by callers,
                     // e.g. giving the user an error message. Therefore it is checked.
-                    this.LOGGER.error( "Invalid configuration entry: {}", line );
+                    this.LOGGER.error( icee.getLocalizedMessage() );
+                    return icee;
                 }
                 catch ( NumberFormatException nfe )
                 {
                     this.LOGGER.error( "Invalid number in config entry: {}", line );
+                    return nfe;
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
                     // The (checked) NoSuchFieldException cannot be reasonably handled by callers,
                     // since it arises from a programming error in the confoguratioun class.
                     // Therefore we wrap it in IllegalStateException so that it becomes unchecked.
-                    this.LOGGER.error( "No matching field found for config entry: {}", line );
+                    this.LOGGER.error( "No matching field {} found for config entry \"{}\": {}",
+                            line, nsfe.getLocalizedMessage() );
                     throw new RuntimeException( nsfe );
                 }
                 catch ( IllegalAccessException iae )
                 {
-                    this.LOGGER.error( "Failed to set field for: {}", line );
+                    this.LOGGER.error( "Failed to set field for \"{}\": {}",
+                            line, iae.getLocalizedMessage() );
                     throw new RuntimeException( iae );
                 }
                 catch ( UnsupportedOperationException uoe )
@@ -258,7 +272,11 @@ public class ConfigManager
                     this.LOGGER.error( uoe.getLocalizedMessage() );
                     throw uoe;
                 }
-            } );
+
+                return null;
+            } )
+            .filter( Objects::nonNull ) // Remove null entries representing error-free lines
+            .count();
         }
         catch ( IOException ioe )
         {
@@ -266,7 +284,9 @@ public class ConfigManager
             throw ioe;
         }
         
-        this.LOGGER.info( "Finished reading config file!" );
+        this.LOGGER.info( "Finished reading config file with {} errors", numErrors );
+
+        return numErrors;
     }
 
     /**
@@ -283,21 +303,25 @@ public class ConfigManager
             throws InvalidConfigurationEntryException, NumberFormatException,
             NoSuchFieldException, IllegalAccessException
     {
-        String[] entry = line.split( "=" );
+        // Use the two-argument overload to preserve both leading empty strings
+        // AND trailing empty strings
+        String[] entry = line.split( "=", -1 );
 
         // Trim lines so you can have spaces around the equals ("prop = val" as opposed to "prop=val")
         String name, value;
-        try
-        {
-            name = entry[0].trim();
-            value = entry[1].trim();
-        }
-        catch ( ArrayIndexOutOfBoundsException oobe )
-        {
-            // Rethrow as InvalidCnfigurationEntryException
-            throw new InvalidConfigurationEntryException( "Invalid configuration entry \""
-                    + line + "\": ", oobe );
-        }
+
+        name = entry[0].trim();
+        value = entry[1].trim();
+
+        if ( name.isBlank() )
+            throw new InvalidConfigurationEntryException(
+                    "Invalid configuration line: Missing configuration field name in line \""
+                    + line + "\"" );
+
+        if ( value.isBlank() )
+            throw new InvalidConfigurationEntryException(
+                    "Invalid configuration line: Missing configuration value in line \""
+                    + line + "\"" ); 
 
         // Set fields in configurable class
         Field field = this.configurableClass.getDeclaredField( name );
@@ -396,8 +420,8 @@ public class ConfigManager
     /**
      * Serialise all values (as possible) from the configuration class into the config file.
      * Does NOT stop when an error is encountered.
-     * @throws RuntimeException (unchecked, wrapped {IllegalAccessException}) If a configuration field cannot be accessed
-     * @throws NullPointerException (unchecked) If an instance field is encountered but the configuration object instance is {null}
+     * @throws RuntimeException (unchecked, wrapped {@link IllegalAccessException}) If a configuration field cannot be accessed
+     * @throws NullPointerException (unchecked) If an instance field is encountered but the configuration object instance is {@code null}
      * @throws IOException If one occurred while writing to the configuration file
      */
     public void serialiseConfigurationsCompletely() throws IOException
@@ -486,12 +510,12 @@ public class ConfigManager
     }
 
     /**
-     * Serialise a given {java.lang.reflect.Field} into a string representation.
+     * Serialise a given {@link java.lang.reflect.Field} into a string representation.
      * @param field The field to serialise
      * @param instance The object instance containing the field
      * @return A string representation of the field's value
      * @throws IllegalAccessException If the field cannot be accessed
-     * @throws NullPointerException} If the field is an instance field and the provided instance was {null}.
+     * @throws NullPointerException} If the field is an instance field and the provided instance was {@code null}.
      */
     protected static String serialiseField( @NotNull Field field, @Nullable Object instance )
             throws IllegalAccessException, NullPointerException

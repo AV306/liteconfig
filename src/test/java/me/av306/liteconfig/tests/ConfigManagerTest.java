@@ -7,7 +7,6 @@ import java.util.Arrays;
 import java.util.stream.Collectors;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -112,7 +111,7 @@ public class ConfigManagerTest
         public static int STATIC_INT = 42;
 
         public static short STATIC_SHORT = 4;
-        public static float STATIC_FLOAT = 3.14f;
+        public static float STATIC_FLOAT = (float) Math.PI;
         public static double STATIC_DOUBLE = Math.sqrt( 2 );
         public static boolean STATIC_BOOL = true;
 
@@ -386,6 +385,7 @@ public class ConfigManagerTest
         assertEquals( readConfigFile( configFilePath ), newContents );
 
         assertFalse( configManager.deserialiseConfigurationFileOrElseCreateNew(), "A new configuration file was created despite one already existing" );
+        assertEquals( 0,  configManager.deserialiseConfigurationFileCompletely() );
 
         // Sanity check the file contents, again
         // TODO: can we check the modified date?
@@ -419,7 +419,7 @@ public class ConfigManagerTest
         // Sanity-check the initial contents
         assertEquals( 42, Configurations3.STATIC_INT );
         assertEquals( 4, Configurations3.STATIC_SHORT );
-        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon );
         assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
         assertEquals( true, Configurations3.STATIC_BOOL );
         assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
@@ -430,19 +430,8 @@ public class ConfigManagerTest
         // We won't check serialisation; the two previous tests cover that
 
         String newContents = """
-        # This is a top-level
-        # multiline comment.
-
-        # This is a field-level single-line comment.
-        STATIC_INT=42
-        # This is a field-level
-        # multi-line comment.
         STATIC_SHORT=notanumber
-        STATIC_FLOAT=2.718000
-        STATIC_DOUBLE=2.236068
-        STATIC_BOOL=false
-        STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
-        STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
+        STATIC_FLOAT=2"aeb
         """.trim();
 
         writeConfigFile( configFilePath, newContents );
@@ -451,17 +440,18 @@ public class ConfigManagerTest
         assertEquals( readConfigFile( configFilePath ), newContents );
 
         assertThrows( NumberFormatException.class, configManager::deserialiseConfigurationFile );
+        assertEquals( 2, configManager.deserialiseConfigurationFileCompletely() );
 
         // Check the new configuration values weren't modified
         assertEquals( 42, Configurations3.STATIC_INT );
-        assertEquals( 4, Configurations3.STATIC_SHORT );
-        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
-        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( 4, Configurations3.STATIC_SHORT ); // malformed
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon ); // malformed
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE, epsilon );
         assertEquals( true, Configurations3.STATIC_BOOL );
         assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
                 Configurations3.STATIC_INT_ARRAYLIST );
         assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
-                Configurations3.STATIC_STRING_ARRAYLIST );        
+                Configurations3.STATIC_STRING_ARRAYLIST );
     }
 
     // TODO: we need to find a better way to isolate the static fields without having one class for each deserialisation test.
@@ -481,8 +471,8 @@ public class ConfigManagerTest
         // Sanity-check the initial contents
         assertEquals( 42, Configurations3.STATIC_INT );
         assertEquals( 4, Configurations3.STATIC_SHORT );
-        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
-        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE, epsilon );
         assertEquals( true, Configurations3.STATIC_BOOL );
         assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
                 Configurations3.STATIC_INT_ARRAYLIST );
@@ -490,15 +480,8 @@ public class ConfigManagerTest
                 Configurations3.STATIC_STRING_ARRAYLIST );
         
         String newContents = """
-        STATIC_INT=42
-        # This is a field-level
-        # multi-line comment.
         STATIC_SHORT=
-        STATIC_FLOAT=2.718000
-        STATIC_DOUBLE=2.236068
-        STATIC_BOOL=false
-        STATIC_INT_ARRAYLIST=[4, 2, 5, 12, 56]
-        STATIC_STRING_ARRAYLIST=[a, rfge, aebfu]
+        =2.718000
         """.trim();
 
         writeConfigFile( configFilePath, newContents );
@@ -507,10 +490,11 @@ public class ConfigManagerTest
         assertEquals( readConfigFile( configFilePath ), newContents );
 
         assertThrows( InvalidConfigurationEntryException.class, configManager::deserialiseConfigurationFile );
+        assertEquals( 2, configManager.deserialiseConfigurationFileCompletely() );
 
         assertEquals( 42, Configurations3.STATIC_INT );
         assertEquals( 4, Configurations3.STATIC_SHORT );
-        assertEquals( 3.14f, Configurations3.STATIC_FLOAT );
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon );
         assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
         assertEquals( true, Configurations3.STATIC_BOOL );
         assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
