@@ -454,6 +454,53 @@ public class ConfigManagerTest
                 Configurations3.STATIC_STRING_ARRAYLIST );
     }
 
+    @Test
+    void testStaticConfigurationDeserialisationMissingField( @TempDir Path tempDir ) throws IOException
+    {
+        String configFileName = "test_static_configuration_deserialisation_missing_field.properties";
+        Path configFilePath = tempDir.resolve( configFileName );
+
+        ConfigManager configManager = new ConfigManager(
+            configFilePath,
+            Configurations3.class,
+            null
+        );
+
+        // Sanity-check the initial contents
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT );
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon );
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );
+
+        String newContents = """
+        MISSING_FIELD=12345
+        """.trim();
+
+        writeConfigFile( configFilePath, newContents );
+
+        // Sanity check the file contents
+        assertEquals( readConfigFile( configFilePath ), newContents );
+
+        assertThrows( InvalidConfigurationEntryException.class, configManager::deserialiseConfigurationFile );
+        assertEquals( 1, configManager.deserialiseConfigurationFileCompletely() );
+
+        // Check the new configuration values weren't modified
+        assertEquals( 42, Configurations3.STATIC_INT );
+        assertEquals( 4, Configurations3.STATIC_SHORT ); // malformed
+        assertEquals( Math.PI, Configurations3.STATIC_FLOAT, epsilon ); // malformed
+        assertEquals( Math.sqrt( 2 ), Configurations3.STATIC_DOUBLE, epsilon );
+        assertEquals( true, Configurations3.STATIC_BOOL );
+        assertEquals( new ArrayList<>( Arrays.asList( 2, 4, 6, 8, 10 ) ),
+                Configurations3.STATIC_INT_ARRAYLIST );
+        assertEquals( new ArrayList<>( Arrays.asList( "hello", "world" ) ),
+                Configurations3.STATIC_STRING_ARRAYLIST );
+    }
+
     // TODO: we need to find a better way to isolate the static fields without having one class for each deserialisation test.
     // TODO: also tests need to be updated when we make configmanager rollback changes
     @Test

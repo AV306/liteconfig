@@ -104,7 +104,7 @@ public class ConfigManager
         }
         else
         {
-            this.LOGGER.info( "Config file already exists; will read configs from {}",
+            this.LOGGER.info( "Configuration file already exists; will read configs from {}",
                     this.configFilePath );
             this.deserialiseConfigurationFileCompletely();
             return false;
@@ -112,25 +112,25 @@ public class ConfigManager
     }
 
     /**
-     * Read configs from the config file, updating the configuration class.
+     * Read configs from the configuration file, updating the configuration class.
      * Will stop and throw an exception on the first malformed line it encounters,
      * so the user can be notified. NOTE: Changes made to the configuration class before an exception is thrown will not be rolled back.
      * Partial application of configurations may result.
      * <br>
      * This does not modify the configuration file.
      * <br>
-     * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
-     * @throws InvalidConfigurationEntryException If an invalid configuration entry is encountered
+     * NOTE: entries in the configuration file MUST match field names EXACTLY (case-SENSITIVE)
+     * @throws InvalidConfigurationEntryException If an invalid configuration entry is encountered.
+     * Note that in this case, a InvalidConfigurationEntryException is ALSO thrown in place of a NoSuchFieldException, and not just for missing components.
      * @throws NumberFormatException If a configuration entry contains an invalid number
      * @throws IOException If one occurred while reading the configuration file
-     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {@link java.lang.NoSuchFieldException}
+     * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {@link java.lang.IllegalAccessException}
      * or {@link java.lang.IllegalAccessException} are thrown by the underlying {@link #deserialiseConfigurationLine(String)} method
      * for programmer error arising from improper declarations in the configuration class.
      * They are wrapped in RuntimeException to make them unchecked.
      * @throws UnsupportedOperationException (unchecked) If an unsupported data type is encountered during deserialisation
      */
     // TODO: any way to make it collect all exceptions first then throw them all, like a compiler?
-    // FIXME: partial application of configs
     // I changed my mind about deprecation. It's probably useful as a stopgap to
     // inform the user of errors along the way, at least until I write
     // a better ConfigManager class.
@@ -159,21 +159,24 @@ public class ConfigManager
                 {
                     // This exception is reasonably handled by callers,
                     // e.g. giving the user an error message. Therefore it is checked.
-                    this.LOGGER.error( "Invalid configuration entry: {}", line );
+                    this.LOGGER.error( icee.getLocalizedMessage() );
                     throw icee;
                 }
                 catch ( NumberFormatException nfe )
                 {
-                    this.LOGGER.error( "Invalid number in config entry: {}", line );
+                    this.LOGGER.error( "Invalid number value in configuration entry \"{}\": {}",
+                            line, nfe.getLocalizedMessage() );
                     throw nfe;
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
-                    // The (checked) NoSuchFieldException cannot be reasonably handled by callers,
-                    // since it arises from a programming error in the confoguratioun class.
-                    // Therefore we wrap it in IllegalStateException so that it becomes unchecked.
-                    this.LOGGER.error( "No matching field found for config entry: {}", line );
-                    throw new RuntimeException( nsfe );
+                    // Very unfortunately, NSFE is a checked exception and thus cannot be thrown in the lambda
+                    // despite it being very useful for us to forward (e.g. typo in config file => field not found)
+                    // https://stackoverflow.com/questions/27644361/how-can-i-throw-checked-exceptions-from-inside-java-8-lambdas-streams
+                    this.LOGGER.error( "No matching field found for configuration entry \"{}\": {}",
+                            line, nsfe.getLocalizedMessage() );
+                    throw new InvalidConfigurationEntryException( "No matching field found for configuration entry \""
+                            + line + "\": " + nsfe.getLocalizedMessage(), nsfe );
                 }
                 catch ( IllegalAccessException iae )
                 {
@@ -190,22 +193,22 @@ public class ConfigManager
         }
         catch ( IOException ioe )
         {
-            this.LOGGER.error( "IOException while reading config file: {}", ioe.getMessage() );
+            this.LOGGER.error( "IOException while reading configuration file: {}", ioe.getMessage() );
             throw ioe;
         }
         
-        this.LOGGER.info( "Finished reading config file!" );
+        this.LOGGER.info( "Finished reading configuration file!" );
     }
 
     /**
-     * Read configs from the config file, updating the configuration class.
+     * Read configs from the configuration file, updating the configuration class.
      * Will NOT throw exceptions if malformed input is encountered.
      * All configuration entries will be processed; only valid entries will have
      * their corresponding fields updated.
      * <br>
      * This does not modify the configuration file.
      * <br>
-     * NOTE: entries in the config file MUST match field names EXACTLY (case-SENSITIVE)
+     * NOTE: entries in the configuration file MUST match field names EXACTLY (case-SENSITIVE)
      * @throws IOException If one occurred while reading the configuration file
      * @throws RuntimeException (unchecked, wrapped) Reflection exceptions e.g. {@link java.lang.NoSuchFieldException}
      * or {@link java.lang.IllegalAccessException} are thrown by the underlying {@link #deserialiseConfigurationLine(String)} method
@@ -241,24 +244,23 @@ public class ConfigManager
                 // FIXME: should error messages be printed inside the deserialisation method?
                 catch ( InvalidConfigurationEntryException icee )
                 {
-                    // This exception is reasonably handled by callers,
+                    // This exception is caused only by user error and reasonably handled by callers,
                     // e.g. giving the user an error message. Therefore it is checked.
                     this.LOGGER.error( icee.getLocalizedMessage() );
                     return icee;
                 }
                 catch ( NumberFormatException nfe )
                 {
-                    this.LOGGER.error( "Invalid number in config entry: {}", line );
+                    this.LOGGER.error( "Invalid number value in configuration entry \"{}\": {}",
+                            line, nfe.getLocalizedMessage() );
                     return nfe;
                 }
                 catch ( NoSuchFieldException nsfe )
                 {
-                    // The (checked) NoSuchFieldException cannot be reasonably handled by callers,
-                    // since it arises from a programming error in the confoguratioun class.
-                    // Therefore we wrap it in IllegalStateException so that it becomes unchecked.
-                    this.LOGGER.error( "No matching field {} found for config entry \"{}\": {}",
+                    // The NSFE could reasonably be caused by either user error or programmer error
+                    this.LOGGER.error( "No matching field found for configuration entry \"{}\": {}",
                             line, nsfe.getLocalizedMessage() );
-                    throw new RuntimeException( nsfe );
+                    return nsfe;
                 }
                 catch ( IllegalAccessException iae )
                 {
@@ -280,11 +282,11 @@ public class ConfigManager
         }
         catch ( IOException ioe )
         {
-            this.LOGGER.error( "IOException while reading config file: {}", ioe.getMessage() );
+            this.LOGGER.error( "IOException while reading configuration file: {}", ioe.getMessage() );
             throw ioe;
         }
         
-        this.LOGGER.info( "Finished reading config file with {} errors", numErrors );
+        this.LOGGER.info( "Finished reading configuration file with {} errors", numErrors );
 
         return numErrors;
     }
@@ -418,7 +420,7 @@ public class ConfigManager
     }
 
     /**
-     * Serialise all values (as possible) from the configuration class into the config file.
+     * Serialise all values (as possible) from the configuration class into the configuration file.
      * Does NOT stop when an error is encountered.
      * @throws RuntimeException (unchecked, wrapped {@link IllegalAccessException}) If a configuration field cannot be accessed
      * @throws NullPointerException (unchecked) If an instance field is encountered but the configuration object instance is {@code null}
@@ -468,7 +470,7 @@ public class ConfigManager
                 catch ( IllegalAccessException illegal )
                 {
                     // This is thrown if the field is private
-                    this.LOGGER.error( "Could not access field {} while creating config file", field.getName() );
+                    this.LOGGER.error( "Could not access field {} while creating configuration file", field.getName() );
                     throw new RuntimeException( illegal );
                 }
                 catch ( NullPointerException npe )
@@ -482,7 +484,7 @@ public class ConfigManager
         }
         catch ( IOException ioe )
         {
-            this.LOGGER.error( "IOException while creating config file: {}", ioe.getMessage() );
+            this.LOGGER.error( "IOException while creating configuration file: {}", ioe.getMessage() );
             throw ioe;
         }
     }
