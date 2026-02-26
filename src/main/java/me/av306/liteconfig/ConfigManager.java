@@ -91,8 +91,7 @@ public class ConfigManager
      * @throws IOException If one occurred while reading or writing the configuration file
      * @return True if a new configuration file was created, false otherwise
      */
-    public boolean deserialiseConfigurationFileOrElseCreateNew()
-            throws InvalidConfigurationEntryException, NumberFormatException, IOException
+    public boolean deserialiseConfigurationFileOrElseCreateNew() throws IOException
     {
         if ( !this.configFilePath.toFile().exists() )
         {
